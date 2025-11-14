@@ -1,15 +1,18 @@
-# aliments_recettes.py
+# recette.py
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 import random
 
+# États possibles d’un aliment
 class EtatAliment(Enum):
     SORTI_DU_BAC = auto()
     COUPE = auto()
     CUIT = auto()
 
+
+# Classe Aliment (inchangée)
 @dataclass
 class Aliment:
     nom: str
@@ -34,35 +37,61 @@ class Aliment:
         if self.etat == EtatAliment.CUIT:         return "#ff9966"
         return "white"
 
-# Chaque recette peut demander 1..N ingrédients (nom + état, quantité=1 par défaut)
+
 @dataclass(frozen=True)
 class IngredientRequis:
     nom: str
-    etat: EtatAliment
+    etats: List[EtatAliment]
 
+    @property
+    def etat_final(self) -> EtatAliment:
+        """L’état final attendu pour compléter la recette."""
+        return self.etats[-1]
+
+    def etape_suivante(self, etat_actuel: EtatAliment) -> EtatAliment | None:
+        """
+        Retourne l’étape suivante de transformation :
+          - SORTI_DU_BAC -> COUPE
+          - COUPE -> CUIT
+          - CUIT -> None (terminé)
+        """
+        # si déjà dans la chaîne
+        if etat_actuel in self.etats:
+            idx = self.etats.index(etat_actuel)
+            if idx + 1 < len(self.etats):
+                return self.etats[idx + 1]
+            return None  # déjà terminé
+
+        # sinon : SORTI_DU_BAC, on retourne la première étape
+        return self.etats[0]
+
+
+# Recette = liste d’ingrédients
 @dataclass
 class Recette:
     nom: str
     requis: List[IngredientRequis]
 
     def est_complete_avec(self, items: List[Aliment]) -> bool:
-        # ... (inchangé) ...
+        """Vrai si tous les ingrédients nécessaires (état final) sont présents."""
         needed = self.requis.copy()
         used = [False] * len(items)
-        for req in needed[:]:
+
+        for req in needed:
             found = False
             for i, a in enumerate(items):
                 if used[i]:
                     continue
-                if (not a.est_perime) and a.nom == req.nom and a.etat == req.etat:
+                if (not a.est_perime) and a.nom == req.nom and a.etat == req.etat_final:
                     used[i] = True
                     found = True
                     break
             if not found:
-                return False   
+                return False
         return True
 
-# Pool d'aliments disponibles dans les bacs
+
+# Aliments disponibles en bac
 ALIMENTS_BAC: List[Tuple[str, float]] = [
     ("tomate", 0.0005),
     ("viande", 0.0010),
@@ -70,22 +99,45 @@ ALIMENTS_BAC: List[Tuple[str, float]] = [
     ("salade", 0.0008),
 ]
 
+
 def prendre_au_bac(nom: str, vitesse: float) -> Aliment:
     return Aliment(nom=nom, etat=EtatAliment.SORTI_DU_BAC, vitesse_peremption=vitesse)
 
-# Quelques recettes (1 ou 2 ingrédients)
+
+# Liste des recettes
 RECETTES_POOL: List[Recette] = [
-    Recette("Tomate poelee",      [IngredientRequis("tomate", EtatAliment.CUIT)]),
-    Recette("Viande cuite",       [IngredientRequis("viande", EtatAliment.CUIT)]),
-    Recette("Pates nature",       [IngredientRequis("pate",   EtatAliment.CUIT)]),
-    Recette("Salade coupee",      [IngredientRequis("salade", EtatAliment.COUPE)]),
-    Recette("Salade composee",    [IngredientRequis("salade", EtatAliment.COUPE),
-                                   IngredientRequis("tomate", EtatAliment.COUPE)]),
-    Recette("Pates bolognaises",  [IngredientRequis("pate",   EtatAliment.CUIT),
-                                   IngredientRequis("viande", EtatAliment.CUIT)]),
-    Recette("Sandwich",           [IngredientRequis("viande", EtatAliment.CUIT),
-                                   IngredientRequis("salade", EtatAliment.COUPE)]),
+    Recette("Tomate poelee", [
+        IngredientRequis("tomate", [EtatAliment.CUIT]),
+    ]),
+
+    Recette("Viande cuite", [
+        IngredientRequis("viande", [EtatAliment.COUPE, EtatAliment.CUIT]),
+    ]),
+
+    Recette("Pates nature", [
+        IngredientRequis("pate", [EtatAliment.CUIT]),
+    ]),
+
+    Recette("Salade coupee", [
+        IngredientRequis("salade", [EtatAliment.COUPE]),
+    ]),
+
+    Recette("Salade composee", [
+        IngredientRequis("salade", [EtatAliment.COUPE]),
+        IngredientRequis("tomate", [EtatAliment.COUPE]),
+    ]),
+
+    Recette("Pates bolognaises", [
+        IngredientRequis("pate",   [EtatAliment.CUIT]),
+        IngredientRequis("viande", [EtatAliment.COUPE, EtatAliment.CUIT]),
+    ]),
+
+    Recette("Sandwich", [
+        IngredientRequis("viande", [EtatAliment.COUPE, EtatAliment.CUIT]),
+        IngredientRequis("salade", [EtatAliment.COUPE]),
+    ]),
 ]
 
+# Nouvelle recette aléatoire
 def nouvelle_recette() -> Recette:
     return random.choice(RECETTES_POOL)

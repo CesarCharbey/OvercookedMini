@@ -33,18 +33,18 @@ PAUSE_AFTER_RESET_S = 1.0
 
 # ---------- Helpers recettes ----------
 def recettes_possibles_pour_items(items: List[Aliment], recettes: List[Recette]) -> List[Recette]:
-    possibles: List[Recette] = []
+    possibles = []
     for r in recettes:
         non_perimes = [a for a in items if not a.est_perime]
-        requis = r.requis.copy()
-        used = [False]*len(requis)
+        requis = r.requis
+        used = [False] * len(requis)
         ok = True
         for a in non_perimes:
             matched = False
             for i, req in enumerate(requis):
                 if used[i]:
                     continue
-                if a.nom == req.nom and a.etat == req.etat:
+                if a.nom == req.nom and a.etat == req.etat_final:
                     used[i] = True
                     matched = True
                     break
@@ -57,31 +57,28 @@ def recettes_possibles_pour_items(items: List[Aliment], recettes: List[Recette])
 
 def items_completent_recette(items: List[Aliment], r: Recette) -> bool:
     non_perimes = [a for a in items if not a.est_perime]
-    if len(non_perimes) < len(r.requis):
-        return False
-    used = [False]*len(r.requis)
-    matched = 0
+    used = [False] * len(r.requis)
     for a in non_perimes:
         for i, req in enumerate(r.requis):
             if used[i]:
                 continue
-            if a.nom == req.nom and a.etat == req.etat:
+            if a.nom == req.nom and a.etat == req.etat_final:
                 used[i] = True
-                matched += 1
                 break
-    return matched == len(r.requis)
+    return all(used)
+
 
 def matched_flags_for_recipe(items: List[Aliment], r: Recette) -> List[bool]:
-    """Pour chaque requis, True si un item (non périmé) de même nom+état est présent."""
     flags = [False] * len(r.requis)
     for a in items:
         if a.est_perime:
             continue
         for i, req in enumerate(r.requis):
-            if not flags[i] and a.nom == req.nom and a.etat == req.etat:
+            if not flags[i] and a.nom == req.nom and a.etat == req.etat_final:
                 flags[i] = True
                 break
     return flags
+
 
 def first_missing_index(flags: List[bool]) -> int:
     for i, ok in enumerate(flags):
@@ -178,7 +175,10 @@ class Game:
         y = 28
         self.canvas.create_rectangle(0, y, W, y + 22 * 3 + 6, fill="#333", outline="")
         for i, r in enumerate(self.recettes):
-            need = " + ".join(f"{req.nom}({req.etat.name})" for req in r.requis)
+            need = " + ".join(
+                f"{req.nom}({'→'.join(et.name for et in req.etats)})"
+                for req in r.requis
+            )
             txt = f"{i+1}. {r.nom}  [{need}]"
             self.canvas.create_text(8, y + 4 + i * 22, text=txt, fill="white", anchor="nw", font=("Arial", 11))
 
@@ -235,7 +235,7 @@ class Game:
             etat_requis = None
             for req in self.bot_recette.requis:
                 if req.nom == p.item.nom:
-                    etat_requis = req.etat
+                    etat_requis = req.etape_suivante(p.item.etat)
                     break
 
             if etat_requis == EtatAliment.COUPE and p.item.etat == EtatAliment.SORTI_DU_BAC and not p.item.est_perime:
@@ -253,7 +253,7 @@ class Game:
             etat_requis = None
             for req in self.bot_recette.requis:
                 if req.nom == p.item.nom:
-                    etat_requis = req.etat
+                    etat_requis = req.etape_suivante(p.item.etat)
                     break
 
             if etat_requis == EtatAliment.CUIT and not p.item.est_perime:
@@ -388,8 +388,9 @@ class Game:
             etat_requis = None
             for req in self.bot_recette.requis:
                 if req.nom == a.nom:
-                    etat_requis = req.etat
+                    etat_requis = req.etape_suivante(a.etat)
                     break
+
             if etat_requis == EtatAliment.COUPE:
                 if a.etat == EtatAliment.SORTI_DU_BAC:
                     self._aller_adjacent("DECOUPE"); return
