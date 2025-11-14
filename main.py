@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Iterable, Deque
 from collections import deque
 import time
 
+from end_screen import EndScreen
 from carte import Carte
 from player import Player
 from recette import (
@@ -35,7 +36,7 @@ grille_J2= [
 ]
 
 W, H = 600, 600
-GAME_DURATION_S = 180
+GAME_DURATION_S = 90
 TICK_MS = 100
 MOVE_EVERY = 1
 BLOCK_TIMEOUT_S = 3.0
@@ -150,6 +151,7 @@ class Game:
         self.last_tick = time.time()
 
         self.recettes: List[Recette] = [nouvelle_recette(), nouvelle_recette(), nouvelle_recette()]
+        self.recettes_livrees = [] # utile pour garder des stats
 
         self.current_path: List[Coord] = []
         self.move_cooldown = 0
@@ -394,6 +396,7 @@ class Game:
                         # --- SCORE INTELLIGENT ---
                         points = r.complexite * 50
                         self.score += points
+                        self.recettes_livrees.append((r.nom, r.complexite))
                         p.item = None
                         self.recettes.pop(idx)
                         self.recettes.append(nouvelle_recette())
@@ -542,12 +545,9 @@ class Game:
                 if a.est_perime:
                     stock.remove(a)
 
-        if now >= self.deadline:
-            self.player.dessiner(self.canvas, self.carte)
-            self.canvas.create_rectangle(0, 0, W, H, fill="#00000088", outline="")
-            self.canvas.create_text(W/2, H/2 - 10, text="FIN !", fill="white", font=("Arial", 26, "bold"))
-            self.canvas.create_text(W/2, H/2 + 22, text=f"Score : {self.score}", fill="white", font=("Arial", 18))
+        if now >= self.deadline: #fin de la partie on quitte
             return
+
 
         # ---- ACTION EN COURS (découpe, cuisson...) ----
         if self.action_en_cours:
@@ -612,8 +612,23 @@ def main():
     label2.pack()
     game2 = Game(frame2, grille_J2)
 
-    # ---- Lancement ----
+    # ---------- CHECK FIN DE PARTIE ----------
+    def check_end():
+        now = time.time()
+        if now >= game1.deadline:   # Les deux partagent le même timer
+            EndScreen(
+                root,
+                {"score": game1.score, "recettes": game1.recettes_livrees},
+                {"score": game2.score, "recettes": game2.recettes_livrees},
+            )
+        else:
+            root.after(200, check_end)
+
+    check_end()   # lancement de la surveillance
+
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
+
