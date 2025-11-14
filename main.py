@@ -390,13 +390,19 @@ class Game:
             if est_adj_service:
                 for idx, r in enumerate(self.recettes):
                     if p.item.nom == r.nom:
-                        self.score += 100
+
+                        # --- SCORE INTELLIGENT ---
+                        points = r.complexite * 50
+                        self.score += points
+                        print(f"✔ Recette livrée : {r.nom} (complexité {r.complexite}, +{points} points)")
+
                         p.item = None
                         self.recettes.pop(idx)
                         self.recettes.append(nouvelle_recette())
                         self._mark_progress()
                         self._refresh()
                         return True
+
   
         return False
 
