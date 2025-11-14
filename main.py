@@ -38,7 +38,7 @@ grille_J2= [
 W, H = 800, 800
 GAME_DURATION_S = 90
 TICK_MS = 100
-MOVE_EVERY = 1
+MOVE_EVERY = 1.5
 BLOCK_TIMEOUT_S = 3.0
 PAUSE_AFTER_RESET_S = 1.0
 
@@ -144,7 +144,7 @@ class Game:
         self.carte = Carte(grille_data, largeur=W, hauteur=H)
         self.carte.assigner_bacs(ALIMENTS_BAC)
 
-        self.player = Player(2, 2)
+        self.player = Player(2, 2, sprite_path="texture/Player.png")
 
         self.score = 0
         self.deadline = time.time() + GAME_DURATION_S
@@ -608,6 +608,7 @@ class Game:
                     if self.try_action_e():
                         self._mark_progress()
 
+        self.player.update(dt)                
         self._refresh()
         self.root.after(TICK_MS, self._tick)
 
