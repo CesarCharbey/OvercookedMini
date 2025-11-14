@@ -354,7 +354,8 @@ class Game:
                     if p.item.nom == r.nom:
                         self.score += 100
                         p.item = None
-                        self.recettes[idx] = nouvelle_recette()
+                        self.recettes.pop(idx)
+                        self.recettes.append(nouvelle_recette())
                         self._mark_progress()
                         self._refresh()
                         return True
