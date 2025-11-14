@@ -612,7 +612,7 @@ class Game:
         self._refresh()
         self.root.after(TICK_MS, self._tick)
 
-def main():
+def main(strategie_J1="naive", strategie_J2="naive"):
     root = tk.Tk()
     root.title("Cuisine — Deux joueurs 🧑‍🍳🧑‍🍳")
     root.resizable(False, False)
@@ -625,14 +625,14 @@ def main():
     frame1.pack(side="left")
     label1 = tk.Label(frame1, text="👩‍🍳 Joueur 1", font=("Arial", 14, "bold"))
     label1.pack()
-    game1 = Game(frame1, grille_J1, strategie = "complexe")
+    game1 = Game(frame1, grille_J1, strategie=strategie_J1)
 
     # ---- Carte / joueur 2 ----
     frame2 = tk.Frame(frame)
     frame2.pack(side="left")
     label2 = tk.Label(frame2, text="🧑‍🍳 Joueur 2", font=("Arial", 14, "bold"))
     label2.pack()
-    game2 = Game(frame2, grille_J2, strategie = "simple")
+    game2 = Game(frame2, grille_J2, strategie=strategie_J2)
 
     # ---------- CHECK FIN DE PARTIE ----------
     def check_end():
@@ -653,4 +653,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
