@@ -12,14 +12,24 @@ from recette import (
 )
 
 # ---------- Carte d'exemple ----------
-grille: List[List[int]] = [
+grille_J1= [
     [6,6,6,6,6,6,6,6,6,6],
     [6,0,0,3,2,2,0,0,8,6],
     [6,1,0,0,0,0,0,0,8,6],
     [6,1,0,0,0,0,0,0,4,6],
     [6,1,0,0,0,0,0,0,4,6],
     [6,1,0,0,0,0,0,0,4,6],
+    [6,0,0,7,7,3,0,0,4,6],
+    [6,6,6,6,6,6,6,6,6,6],
+]
 
+grille_J2= [
+    [6,6,6,6,6,6,6,6,6,6],
+    [6,0,0,3,2,2,0,0,8,6],
+    [6,1,0,0,0,0,0,0,8,6],
+    [6,1,0,0,0,0,0,0,4,6],
+    [6,1,0,0,0,0,0,0,4,6],
+    [6,1,0,0,0,0,0,0,4,6],
     [6,0,0,7,7,3,0,0,4,6],
     [6,6,6,6,6,6,6,6,6,6],
 ]
@@ -125,12 +135,12 @@ def cases_adjacentes_a_stations(carte: Carte, stations: List[Coord]) -> List[Coo
 
 # ---------- Game + Bot ----------
 class Game:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, grille_data=None) -> None:
         self.root = root
         self.canvas = tk.Canvas(root, width=W, height=H)
         self.canvas.pack()
 
-        self.carte = Carte(grille, largeur=W, hauteur=H)
+        self.carte = Carte(grille_data, largeur=W, hauteur=H)
         self.carte.assigner_bacs(ALIMENTS_BAC)
 
         self.player = Player(2, 2)
@@ -552,9 +562,27 @@ class Game:
 
 def main():
     root = tk.Tk()
-    root.title("Cuisine — Joueur autonome (anti-blocage, assembleurs intelligents)")
+    root.title("Cuisine — Deux joueurs 🧑‍🍳🧑‍🍳")
     root.resizable(False, False)
-    Game(root)
+
+    frame = tk.Frame(root)
+    frame.pack()
+
+    # ---- Carte / joueur 1 ----
+    frame1 = tk.Frame(frame)
+    frame1.pack(side="left")
+    label1 = tk.Label(frame1, text="👩‍🍳 Joueur 1", font=("Arial", 14, "bold"))
+    label1.pack()
+    game1 = Game(frame1, grille_J1)
+
+    # ---- Carte / joueur 2 ----
+    frame2 = tk.Frame(frame)
+    frame2.pack(side="left")
+    label2 = tk.Label(frame2, text="🧑‍🍳 Joueur 2", font=("Arial", 14, "bold"))
+    label2.pack()
+    game2 = Game(frame2, grille_J2)
+
+    # ---- Lancement ----
     root.mainloop()
 
 if __name__ == "__main__":
