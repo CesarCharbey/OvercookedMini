@@ -158,6 +158,10 @@ class Game:
         # assembleur “verrouillé” (si on exploite un partiel)
         self.current_assembly: Optional[Coord] = None
 
+        # temps des actions
+        self.action_en_cours = None
+        self.action_fin = 0.0
+
         self._refresh()
         self.root.after(TICK_MS, self._tick)
 
@@ -233,23 +237,32 @@ class Game:
                 if req.nom == p.item.nom:
                     etat_requis = req.etat
                     break
+
             if etat_requis == EtatAliment.COUPE and p.item.etat == EtatAliment.SORTI_DU_BAC and not p.item.est_perime:
-                p.item.transformer(EtatAliment.COUPE)
-                self._mark_progress()
+                # Lancer une ACTION de découpe (2 secondes ici)
+                self.action_en_cours = ("DECOUPE", p.est_adjacent_a(self.carte.pos_decoupes), p.item)
+                self.action_fin = time.time() + 2.0
                 self._refresh()
                 return True
 
         # --- CUISSON : seulement si requis CUIT ---
-        if p.item and (p.est_adjacent_a(self.carte.pos_fours) or p.est_adjacent_a(self.carte.pos_poeles)) and self.bot_recette:
+        adj_four = p.est_adjacent_a(self.carte.pos_fours)
+        adj_poele = p.est_adjacent_a(self.carte.pos_poeles)
+
+        if p.item and (adj_four or adj_poele) and self.bot_recette:
             etat_requis = None
             for req in self.bot_recette.requis:
                 if req.nom == p.item.nom:
                     etat_requis = req.etat
                     break
+
             if etat_requis == EtatAliment.CUIT and not p.item.est_perime:
                 if p.item.etat in (EtatAliment.SORTI_DU_BAC, EtatAliment.COUPE):
-                    p.item.transformer(EtatAliment.CUIT)
-                    self._mark_progress()
+
+                    # Lancer une ACTION de cuisson (3 secondes ici)
+                    pos_station = adj_four or adj_poele
+                    self.action_en_cours = ("CUISSON", pos_station, p.item)
+                    self.action_fin = time.time() + 3.0
                     self._refresh()
                     return True
 
@@ -494,6 +507,28 @@ class Game:
             self.canvas.create_text(W/2, H/2 - 10, text="FIN !", fill="white", font=("Arial", 26, "bold"))
             self.canvas.create_text(W/2, H/2 + 22, text=f"Score : {self.score}", fill="white", font=("Arial", 18))
             return
+
+        # ---- ACTION EN COURS (découpe, cuisson...) ----
+        if self.action_en_cours:
+            # Si l'action est terminée
+            if time.time() >= self.action_fin:
+                type_action, pos_action, aliment = self.action_en_cours
+
+                # Finaliser l’action
+                if type_action == "DECOUPE":
+                    aliment.transformer(EtatAliment.COUPE)
+                elif type_action == "CUISSON":
+                    aliment.transformer(EtatAliment.CUIT)
+
+                # Reset action
+                self.action_en_cours = None
+                self._mark_progress()
+
+            else:
+                # Action EN COURS → on stoppe totalement l'IA
+                self._refresh()
+                self.root.after(TICK_MS, self._tick)
+                return
 
         # anti-blocage avant décision
         self._check_blockage()
