@@ -235,11 +235,11 @@ class Game:
 
         elif self.strategie == "simple":
             # prendre la recette avec la complexité la plus faible
-            return min(self.recettes, key=lambda r: r.complexite)
+            return min(self.recettes, key=lambda r: r.temps_estime)
 
         elif self.strategie == "complexe":
             #prendre la recette avec la complexité la plus haute
-            return max(self.recettes, key=lambda r: r.complexite)
+            return max(self.recettes, key=lambda r: r.difficulte_reelle) # utilisation de la vraie difficulté de la recettes (comme un mode expert)
 
         # fallback
         return self.recettes[0]
@@ -284,11 +284,13 @@ class Game:
                     break
 
             if etat_requis == EtatAliment.COUPE and p.item.etat == EtatAliment.SORTI_DU_BAC and not p.item.est_perime:
-                # Lancer une ACTION de découpe (2 secondes ici)
+                from recette import TEMPS_COUPE
+                duree = TEMPS_COUPE.get(p.item.nom, 1.0)
                 self.action_en_cours = ("DECOUPE", p.est_adjacent_a(self.carte.pos_decoupes), p.item)
-                self.action_fin = time.time() + 2.0
+                self.action_fin = time.time() + duree
                 self._refresh()
                 return True
+
 
         # --- CUISSON : seulement si requis CUIT ---
         adj_four = p.est_adjacent_a(self.carte.pos_fours)
@@ -303,13 +305,14 @@ class Game:
 
             if etat_requis == EtatAliment.CUIT and not p.item.est_perime:
                 if p.item.etat in (EtatAliment.SORTI_DU_BAC, EtatAliment.COUPE):
-
-                    # Lancer une ACTION de cuisson (3 secondes ici)
+                    from recette import TEMPS_CUISSON
+                    duree = TEMPS_CUISSON.get(p.item.nom, 2.0)
                     pos_station = adj_four or adj_poele
                     self.action_en_cours = ("CUISSON", pos_station, p.item)
-                    self.action_fin = time.time() + 3.0
+                    self.action_fin = time.time() + duree
                     self._refresh()
                     return True
+
 
         # --- ASSEMBLAGE ---
         adj_ass = p.est_adjacent_a(self.carte.pos_assemblages)
@@ -412,7 +415,7 @@ class Game:
                     if p.item.nom == r.nom:
 
                         # --- SCORE INTELLIGENT ---
-                        points = r.complexite * 50
+                        points = r.difficulte_reelle
                         self.score += points
                         self.recettes_livrees.append((r.nom, r.complexite))
                         p.item = None

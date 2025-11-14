@@ -4,11 +4,45 @@ from enum import Enum, auto
 from typing import List, Optional, Tuple
 import random
 
+
+# ---------------------------------------------------
+# ÉTATS DES ALIMENTS
+# ---------------------------------------------------
 class EtatAliment(Enum):
     SORTI_DU_BAC = auto()
     COUPE = auto()
     CUIT = auto()
 
+
+# ---------------------------------------------------
+# DURÉES DE PRÉPARATION PAR ALIMENT
+# (nouveau : temps de coupe & cuisson)
+# ---------------------------------------------------
+TEMPS_COUPE = {
+    "tomate": 1.0,
+    "salade": 0.8,
+    "aubergine": 1.5,
+    "courgette": 1.2,
+    "poivron": 1.0,
+    "viande": 2.0,
+    "oeuf": 0.8,
+    "pain": 0.0,   # se coupe pas
+}
+
+TEMPS_CUISSON = {
+    "tomate": 2.0,
+    "aubergine": 3.0,
+    "courgette": 2.0,
+    "poivron": 2.5,
+    "viande": 4.0,
+    "oeuf": 1.5,
+    "pate": 2.5,
+}
+
+
+# ---------------------------------------------------
+# ALIMENT
+# ---------------------------------------------------
 @dataclass
 class Aliment:
     nom: str
@@ -34,6 +68,9 @@ class Aliment:
         return "white"
 
 
+# ---------------------------------------------------
+# INGREDIENT REQUIS
+# ---------------------------------------------------
 @dataclass(frozen=True)
 class IngredientRequis:
     nom: str
@@ -54,20 +91,54 @@ class IngredientRequis:
             return self.etats[0]
 
 
+# ---------------------------------------------------
+# RECETTE
+# ---------------------------------------------------
 @dataclass
 class Recette:
     nom: str
     requis: List[IngredientRequis]
 
+    # === Complexité STRUCTURELLE : nombre d’étapes ===
     @property
     def complexite(self) -> int:
-        """Total des étapes de préparation."""
         return sum(len(req.etats) for req in self.requis)
 
+    # === Interactions réelles : prise + étapes + assemblage ===
+    @property
+    def interactions(self) -> int:
+        total = 0
+        for req in self.requis:
+            total += 1                  # prise au bac
+            total += len(req.etats)     # étapes
+            total += 1                  # assemblage
+        return total
 
-# ------------------------
-# Bacs disponibles
-# ------------------------
+    # === Temps total estimé (nouveau) ===
+    @property
+    def temps_estime(self) -> float:
+        total = 0.0
+        for req in self.requis:
+            # coupe
+            if EtatAliment.COUPE in req.etats:
+                total += TEMPS_COUPE.get(req.nom, 1.0)
+            # cuisson
+            if EtatAliment.CUIT in req.etats:
+                total += TEMPS_CUISSON.get(req.nom, 2.0)
+
+        # petit bonus pour assemblage
+        total += len(self.requis) * 0.5
+        return total
+
+    # === Difficulté réelle (pour scoring) ===
+    @property
+    def difficulte_reelle(self) -> float:
+        return self.complexite * self.interactions
+
+
+# ---------------------------------------------------
+# INVENTAIRE DES ALIMENTS / BACS
+# ---------------------------------------------------
 
 LEGUMES = {
     "tomate":     0.0005,
@@ -83,21 +154,18 @@ ALIMENTS_BAC = [
     ("oeuf",   0.0009),
     ("pain",   0.0003),
 
-    # bac unique LÉGUMES
+    # Bac unique légumes
     ("legume", 0.0006),
 ]
 
-def prendre_au_bac(nom: str, vitesse: float) -> Aliment:
-    # Bac légumes → donne le légume demandé par le bot
-    if nom == "legume":
-        # Le main va nous dire quel légume exact il veut
-        raise RuntimeError("Appel incorrect : utiliser prendre_legume(nom_reel)")
 
+def prendre_au_bac(nom: str, vitesse: float) -> Aliment:
+    if nom == "legume":
+        raise RuntimeError("Appel incorrect : utiliser prendre_legume()")
     return Aliment(nom=nom, etat=EtatAliment.SORTI_DU_BAC, vitesse_peremption=vitesse)
 
 
 def prendre_legume(nom_legume: str) -> Aliment:
-    """Retourne un légume spécifique depuis le bac unique."""
     return Aliment(
         nom=nom_legume,
         etat=EtatAliment.SORTI_DU_BAC,
@@ -105,9 +173,10 @@ def prendre_legume(nom_legume: str) -> Aliment:
     )
 
 
-# ------------------------
-# RECETTES AVANCÉES
-# ------------------------
+# ---------------------------------------------------
+# RECETTES
+# (inchangées sauf que la difficulté/temps s'adaptent automatiquement)
+# ---------------------------------------------------
 
 RECETTES_POOL: List[Recette] = [
     Recette("Tomate poelee", [
@@ -126,6 +195,14 @@ RECETTES_POOL: List[Recette] = [
         IngredientRequis("salade", [EtatAliment.COUPE])
     ]),
 
+    Recette("Caviar d'aubergine", [
+        IngredientRequis("aubergine", [EtatAliment.COUPE, EtatAliment.CUIT])
+    ]),
+
+    Recette("Poivron rôti", [
+        IngredientRequis("poivron", [EtatAliment.COUPE, EtatAliment.CUIT])
+    ]),
+
     Recette("Salade composee", [
         IngredientRequis("salade", [EtatAliment.COUPE]),
         IngredientRequis("tomate", [EtatAliment.COUPE])
@@ -133,6 +210,11 @@ RECETTES_POOL: List[Recette] = [
 
     Recette("Pates bolognaises", [
         IngredientRequis("pate",   [EtatAliment.CUIT]),
+        IngredientRequis("viande", [EtatAliment.COUPE, EtatAliment.CUIT])
+    ]),
+
+    Recette("Tomate farcie", [
+        IngredientRequis("tomate", [EtatAliment.COUPE, EtatAliment.CUIT]),
         IngredientRequis("viande", [EtatAliment.COUPE, EtatAliment.CUIT])
     ]),
 
@@ -183,6 +265,7 @@ RECETTES_POOL: List[Recette] = [
         IngredientRequis("viande",  [EtatAliment.COUPE, EtatAliment.CUIT])
     ])
 ]
+
 
 def nouvelle_recette() -> Recette:
     return random.choice(RECETTES_POOL)
