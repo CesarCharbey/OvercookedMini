@@ -35,7 +35,7 @@ grille_J2= [
     [6,6,6,6,6,6,6,6,6,6],
 ]
 
-W, H = 600, 600
+W, H = 800, 800
 GAME_DURATION_S = 90
 TICK_MS = 100
 MOVE_EVERY = 1
@@ -136,7 +136,7 @@ def cases_adjacentes_a_stations(carte: Carte, stations: List[Coord]) -> List[Coo
 
 # ---------- Game + Bot ----------
 class Game:
-    def __init__(self, root: tk.Tk, grille_data=None) -> None:
+    def __init__(self, root: tk.Tk, grille_data=None, strategie = None) -> None:
         self.root = root
         self.canvas = tk.Canvas(root, width=W, height=H)
         self.canvas.pack()
@@ -173,6 +173,9 @@ class Game:
 
         self._refresh()
         self.root.after(TICK_MS, self._tick)
+
+        #ajout de strategie
+        self.strategie = strategie
 
     # ---------- HUD ----------
     def _dessiner_hud(self):
@@ -212,7 +215,7 @@ class Game:
         self.player.item = None
         self.current_assembly = None
         if self.recettes:
-            self.bot_recette = self.recettes[0]
+            self.bot_recette = self.choisir_recette()
             self.next_req_idx = 0
         self.current_path = []
         self._refresh()
@@ -226,6 +229,21 @@ class Game:
         if stagnant and (now - self.last_progress_time) > BLOCK_TIMEOUT_S:
             self._restart_recipe_flow()
 
+    def choisir_recette(self):
+        if self.strategie == "naive":
+            return self.recettes[0]
+
+        elif self.strategie == "simple":
+            # prendre la recette avec la complexité la plus faible
+            return min(self.recettes, key=lambda r: r.complexite)
+
+        elif self.strategie == "complexe":
+            #prendre la recette avec la complexité la plus haute
+            return max(self.recettes, key=lambda r: r.complexite)
+
+        # fallback
+        return self.recettes[0]
+    
     # ---------- Actions “joueur” ----------
     def try_action_e(self):
         p = self.player
@@ -440,7 +458,7 @@ class Game:
         if not self.recettes:
             return
         if self.bot_recette is None:
-            self.bot_recette = self.recettes[0]
+            self.bot_recette = self.choisir_recette()
 
         # scan des assembleurs
         best = None  # (pos, flags, matches, dist)
@@ -468,7 +486,7 @@ class Game:
 
         # rien d'utile sur les assembleurs -> prendre 1er ingrédient
         self.current_assembly = None
-        self.bot_recette = self.recettes[0]
+        self.bot_recette = self.choisir_recette()
         self.next_req_idx = 0
         target_req = self.bot_recette.requis[self.next_req_idx]
         self._aller_adjacent("BAC", cible_aliment=target_req.nom)
@@ -603,14 +621,14 @@ def main():
     frame1.pack(side="left")
     label1 = tk.Label(frame1, text="👩‍🍳 Joueur 1", font=("Arial", 14, "bold"))
     label1.pack()
-    game1 = Game(frame1, grille_J1)
+    game1 = Game(frame1, grille_J1, strategie = "complexe")
 
     # ---- Carte / joueur 2 ----
     frame2 = tk.Frame(frame)
     frame2.pack(side="left")
     label2 = tk.Label(frame2, text="🧑‍🍳 Joueur 2", font=("Arial", 14, "bold"))
     label2.pack()
-    game2 = Game(frame2, grille_J2)
+    game2 = Game(frame2, grille_J2, strategie = "simple")
 
     # ---------- CHECK FIN DE PARTIE ----------
     def check_end():
