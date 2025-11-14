@@ -394,8 +394,6 @@ class Game:
                         # --- SCORE INTELLIGENT ---
                         points = r.complexite * 50
                         self.score += points
-                        print(f"✔ Recette livrée : {r.nom} (complexité {r.complexite}, +{points} points)")
-
                         p.item = None
                         self.recettes.pop(idx)
                         self.recettes.append(nouvelle_recette())
