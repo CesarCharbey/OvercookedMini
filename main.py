@@ -186,7 +186,7 @@ class Game:
         self.canvas.create_rectangle(0, y, W, y + 22 * 3 + 6, fill="#333", outline="")
         for i, r in enumerate(self.recettes):
             need = " + ".join(
-                f"{req.nom}({'→'.join(et.name for et in req.etats)})"
+                f"{req.nom}({'→'.join(et.name for et in req.etats if et != EtatAliment.SORTI_DU_BAC)})"
                 for req in r.requis
             )
             txt = f"{i+1}. {r.nom}  [{need}]"
@@ -227,14 +227,29 @@ class Game:
     # ---------- Actions “joueur” ----------
     def try_action_e(self):
         p = self.player
-
         # --- BAC : ne prendre que l’ingrédient requis courant ---
         adj_bac = p.est_adjacent_a(self.carte.pos_bacs)
         if p.item is None and adj_bac and self.bot_recette:
             target_req = self.bot_recette.requis[self.next_req_idx % len(self.bot_recette.requis)]
+            wanted = target_req.nom
+
             nom_bac, v = self.carte.bacs_config.get(adj_bac, ("?", 0.0005))
-            if nom_bac != target_req.nom:
+
+            # Bac légumes → fournit le légume exact demandé
+            if nom_bac == "legume":
+                from recette import prendre_legume
+                if wanted in ["tomate", "salade", "aubergine", "courgette", "poivron"]:
+                    p.item = prendre_legume(wanted)
+                    self._mark_progress()
+                    self._refresh()
+                    return True
+                else:
+                    return False  # Le bac légumes ne fournit pas viande/pate/etc.
+
+            # Sinon : bac normal
+            if nom_bac != wanted:
                 return False
+
             p.item = prendre_au_bac(nom_bac, v)
             self._mark_progress()
             self._refresh()
@@ -382,7 +397,7 @@ class Game:
                         self._mark_progress()
                         self._refresh()
                         return True
-
+  
         return False
 
     # ---------- Planification ----------
@@ -454,8 +469,19 @@ class Game:
     def _aller_adjacent(self, type_cible: str, cible_aliment: Optional[str] = None):
         px, py = self.player.x, self.player.y
 
+        # Recherche des stations
         if type_cible == "BAC":
-            stations = [pos for pos, (nom, _) in self.carte.bacs_config.items() if nom == (cible_aliment or "")]
+            stations = []
+            for pos, (nom_bac, _) in self.carte.bacs_config.items():
+
+                # Bac normal : correspondance exacte
+                if nom_bac == (cible_aliment or ""):
+                    stations.append(pos)
+
+                # Bac légumes : accepte TOUT légume
+                if nom_bac == "legume" and cible_aliment in ["tomate", "salade", "aubergine", "courgette", "poivron"]:
+                    stations.append(pos)
+
         elif type_cible == "DECOUPE":
             stations = self.carte.pos_decoupes
         elif type_cible == "FOUR_OU_POELE":
