@@ -35,7 +35,7 @@ grille_J2= [
     [6,6,6,6,6,6,6,6,6,6],
 ]
 
-W, H = 800, 800
+W, H = 600, 600
 GAME_DURATION_S = 90
 TICK_MS = 100
 MOVE_EVERY = 1.5
@@ -179,27 +179,141 @@ class Game:
 
     # ---------- HUD ----------
     def _dessiner_hud(self):
-        remaining = max(0, int(self.deadline - time.time()))
+        now = time.time()
+        remaining = max(0, int(self.deadline - now))
         mm = remaining // 60
         ss = remaining % 60
         info = f"⏱ {mm:02d}:{ss:02d}    ★ Score: {self.score}"
 
-        self.canvas.create_rectangle(0, 0, W, 28, fill="#222", outline="")
-        self.canvas.create_text(8, 14, text=info, fill="white", anchor="w", font=("Arial", 12, "bold"))
+        TOP_H = 28
 
-        y = 28
-        self.canvas.create_rectangle(0, y, W, y + 22 * 3 + 6, fill="#333", outline="")
+        # --- Bandeau du haut : timer + score ---
+        self.canvas.create_rectangle(0, 0, W, TOP_H, fill="#222", outline="")
+        self.canvas.create_text(
+            8, TOP_H // 2,
+            text=info, fill="white",
+            anchor="w", font=("Arial", 12, "bold")
+        )
+
+        # --- Calcul de la hauteur réelle de la carte ---
+        tile = min(self.carte.largeur_px // self.carte.cols,
+                   self.carte.hauteur_px // self.carte.rows)
+        map_height = self.carte.rows * tile
+
+        # Le panneau du bas commence juste sous la carte
+        panel_y0 = map_height
+        if panel_y0 < TOP_H + 2:
+            panel_y0 = TOP_H + 2
+
+        # Rect fond
+        self.canvas.create_rectangle(0, panel_y0, W, H, fill="#333", outline="")
+
+        # Découpage en 2 colonnes
+        LEFT_MARGIN = 8
+        SPLIT_X = int(W * 0.55)     # tout ce qui est à gauche = recettes
+        RIGHT_MARGIN = 8
+
+        # petite ligne verticale de séparation
+        self.canvas.create_line(SPLIT_X, panel_y0, SPLIT_X, H, fill="#555")
+
+        # ---------- 1) Recettes à gauche (avec retour à la ligne) ----------
+        y = panel_y0 + 4
+        recettes_width = SPLIT_X - 2 * LEFT_MARGIN  # largeur max pour que ça ne déborde pas sur la colonne debug
+
         for i, r in enumerate(self.recettes):
             need = " + ".join(
                 f"{req.nom}({'→'.join(et.name for et in req.etats if et != EtatAliment.SORTI_DU_BAC)})"
                 for req in r.requis
             )
             txt = f"{i+1}. {r.nom}  [{need}]"
-            self.canvas.create_text(8, y + 4 + i * 22, text=txt, fill="white", anchor="nw", font=("Arial", 11))
+            self.canvas.create_text(
+                LEFT_MARGIN, y,
+                text=txt,
+                fill="white",
+                anchor="nw",
+                font=("Arial", 10),
+                width=recettes_width,   # <--- WRAP ICI
+                justify="left",
+            )
+            # on laisse plus d'espace car la ligne peut être wrap sur 2–3 lignes
+            y += 34
+
+        # ---------- 2) Debug IA à droite ----------
+        debug_x = SPLIT_X + RIGHT_MARGIN
+        debug_width = W - debug_x - RIGHT_MARGIN
+
+        lignes_debug = []
+
+        # Recette cible
+        if getattr(self, "bot_recette", None):
+            lignes_debug.append(f"Recette cible : {self.bot_recette.nom}")
+        else:
+            lignes_debug.append("Recette cible : (aucune)")
+
+        # Action en cours
+        if getattr(self, "action_en_cours", None):
+            type_action, pos_action, aliment = self.action_en_cours
+            remaining_act = max(0.0, self.action_fin - now)
+            lignes_debug.append(
+                f"Action : {type_action} {getattr(aliment, 'nom', '?')} ({remaining_act:0.1f}s)"
+            )
+        elif getattr(self, "current_path", None):
+            lignes_debug.append(
+                f"Action : déplacement (chemin {len(self.current_path)} cases)"
+            )
+        else:
+            lignes_debug.append("Action : choix / attente")
+
+        # Prochaine case
+        if getattr(self, "current_path", None):
+            nx, ny = self.current_path[0]
+            lignes_debug.append(f"Prochaine case : ({nx},{ny})")
+
+        # éventuel cooldown anti-blocage
+        if now < getattr(self, "pause_until", 0.0):
+            lignes_debug.append(
+                f"Cooldown IA : {self.pause_until - now:0.1f}s"
+            )
+
+        dy = panel_y0 + 4
+        for line in lignes_debug:
+            self.canvas.create_text(
+                debug_x, dy,
+                text=line,
+                fill="white",
+                anchor="nw",
+                font=("Arial", 10),
+                width=debug_width,   # <--- WRAP pour le texte debug aussi
+                justify="left",
+            )
+            dy += 18
 
     def _refresh(self):
         self.player.dessiner(self.canvas, self.carte)
+        self._dessiner_debug_path()
         self._dessiner_hud()
+
+    def _dessiner_debug_path(self):
+        """Dessine un carré autour de la prochaine case de déplacement."""
+        if not self.current_path:
+            return
+
+        # même taille de tuile que dans Carte.dessiner
+        tile = min(self.carte.largeur_px // self.carte.cols,
+                self.carte.hauteur_px // self.carte.rows)
+        cw = ch = int(tile)
+
+        nx, ny = self.current_path[0]
+        x1 = nx * cw
+        y1 = ny * ch
+        x2 = x1 + cw
+        y2 = y1 + ch
+
+        # petit cadre cyan autour de la prochaine case
+        self.canvas.create_rectangle(
+            x1 + 2, y1 + 2, x2 - 2, y2 - 2,
+            outline="cyan", width=3
+        )
 
     # ---------- anti-blocage ----------
     def _mark_progress(self):

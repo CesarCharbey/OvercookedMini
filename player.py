@@ -97,8 +97,11 @@ class Player:
     # ----------------- Dessin -----------------
     def dessiner(self, canvas: tk.Canvas, carte) -> None:
         carte.dessiner(canvas)
-        cw = carte.largeur_px / carte.cols
-        ch = carte.hauteur_px / carte.rows
+
+        # même logique : une seule taille de tuile carrée
+        taille = min(carte.largeur_px // carte.cols, carte.hauteur_px // carte.rows)
+        cw = ch = int(taille)
+
         x1 = self.anim_x * cw
         y1 = self.anim_y * ch
 

@@ -1,10 +1,12 @@
 # carte.py
 from typing import List, Sequence, Tuple, Dict
 import tkinter as tk
+from PIL import Image, ImageTk
 
 # Codes tuiles
 SOL, BAC, FOUR, DECOUPE, SERVICE, JOUEUR, MUR, POELE, ASSEMBLAGE = 0, 1, 2, 3, 4, 5, 6, 7, 8
 BLOQUANTS = {MUR, BAC, FOUR, DECOUPE, SERVICE, POELE, ASSEMBLAGE}
+DIR_N, DIR_E, DIR_S, DIR_W = "N", "E", "S", "W"
 
 class Carte:
     """Carte grille : dessine, expose les positions des stations et gère libellés/assignations de bacs/assemblage."""
@@ -55,6 +57,29 @@ class Carte:
             JOUEUR: "Joueur",
         }
 
+        # fichiers de textures par type de tuile
+        self.texture_files = {
+            SOL: "texture/Tiles/floor.png",
+            BAC: "texture/Tiles/bread_crate.png",
+            DECOUPE: "texture/Tiles/cutting_board.png",
+            FOUR: "texture/Tiles/oven.png",
+            #SERVICE: "texture/Tiles/service.png",
+            POELE: "texture/Tiles/pan.png",
+            ASSEMBLAGE: "texture/Tiles/plate.png",
+            # MUR: "texture/Tiles/wall.png",  # si un jour tu en ajoutes
+        }
+
+        # textures (clé = (code_tuile, direction))
+        self.textures: Dict[Tuple[int, str], ImageTk.PhotoImage] = {}
+
+        # calcul des textures en fonction de la taille
+        self._charger_textures(self.largeur_px, self.hauteur_px)
+
+        # orientation des stations (four, poêle, etc.)
+        self.orientations: Dict[Tuple[int, int], str] = {}
+        self._calculer_orientations()
+
+
     def _indexer_stations(self) -> None:
         self.pos_bacs.clear(); self.pos_decoupes.clear(); self.pos_services.clear()
         self.pos_poeles.clear(); self.pos_fours.clear(); self.pos_assemblages.clear()
@@ -68,6 +93,97 @@ class Carte:
                 elif code == ASSEMBLAGE:
                     self.pos_assemblages.append((x, y))
                     self.assemblage_stock.setdefault((x, y), [])
+
+    def _calculer_orientations(self) -> None:
+        """Calcule l'orientation 'logique' des stations (four, poêle, etc.)."""
+        self.orientations = {}
+        for y, row in enumerate(self.grille):
+            for x, code in enumerate(row):
+                if code in (FOUR, POELE, DECOUPE, SERVICE, ASSEMBLAGE, BAC):
+                    self.orientations[(x, y)] = self._orientation_pour_case(x, y)
+
+    def _orientation_pour_case(self, x: int, y: int) -> str:
+        """
+        Détermine dans quel sens la station doit regarder.
+        Règle avec gestion des angles :
+          - mur en haut + droite  -> regarde à droite
+          - mur en haut + gauche  -> regarde à gauche
+          - mur en bas  + droite  -> regarde à droite
+          - mur en bas  + gauche  -> regarde à gauche
+          - sinon : opposé au mur le plus proche
+        """
+
+        n = (y > 0 and self.grille[y - 1][x] == MUR)              # mur au-dessus
+        s = (y < self.rows - 1 and self.grille[y + 1][x] == MUR)  # mur en dessous
+        w = (x > 0 and self.grille[y][x - 1] == MUR)              # mur à gauche
+        e = (x < self.cols - 1 and self.grille[y][x + 1] == MUR)  # mur à droite
+
+        # --- 1) CAS ANGLES ---
+
+        # haut + droite -> regarde à droite
+        if n and e:
+            return DIR_E
+        # haut + gauche -> regarde à gauche
+        if n and w:
+            return DIR_W
+        # bas + droite -> regarde à droite
+        if s and e:
+            return DIR_E
+        # bas + gauche -> regarde à gauche
+        if s and w:
+            return DIR_W
+
+        # --- 2) CAS SIMPLE (un seul mur autour) ---
+
+        # mur au-dessus -> la station regarde vers le bas (cuisine)
+        if n:
+            return DIR_S
+        # mur en dessous -> la station regarde vers le haut
+        if s:
+            return DIR_N
+        # mur à droite -> la station regarde vers la gauche
+        if e:
+            return DIR_E
+        # mur à gauche -> la station regarde vers la droite
+        if w:
+            return DIR_W
+
+        # --- 3) AUCUN MUR DIRECTEMENT COLLÉ : orientation par défaut ---
+
+        return DIR_S  # par défaut, regarde vers le bas
+
+
+    def _charger_textures(self, largeur_px, hauteur_px):
+        """Charge les textures de toutes les tuiles + versions rotatées."""
+        taille = min(largeur_px // self.cols, hauteur_px // self.rows)
+        cw = ch = int(taille)
+
+        self.textures = {}
+
+        for code, path in self.texture_files.items():
+            try:
+                base = Image.open(path).convert("RGBA").resize((int(cw), int(ch)), Image.LANCZOS)
+            except Exception as e:
+                print(f"Erreur chargement texture {path} :", e)
+                continue
+
+            # SOL même image pour toutes les directions
+            if code == SOL:
+                tex = ImageTk.PhotoImage(base)
+                for d in (DIR_N, DIR_E, DIR_S, DIR_W):
+                    self.textures[(code, d)] = tex
+                continue
+
+            img_s = base
+            img_n = base.rotate(180, expand=True).resize((int(cw), int(ch)), Image.LANCZOS)
+            img_e = base.rotate(-90, expand=True).resize((int(cw), int(ch)), Image.LANCZOS)
+            img_w = base.rotate(90, expand=True).resize((int(cw), int(ch)), Image.LANCZOS)
+
+            self.textures[(code, DIR_S)] = ImageTk.PhotoImage(img_s)
+            self.textures[(code, DIR_N)] = ImageTk.PhotoImage(img_n)
+            self.textures[(code, DIR_E)] = ImageTk.PhotoImage(img_e)
+            self.textures[(code, DIR_W)] = ImageTk.PhotoImage(img_w)
+
 
     @property
     def rows(self) -> int: return len(self.grille)
@@ -93,6 +209,7 @@ class Carte:
                 if manquants == 0: break
             # reindex si on a modifié la grille
             self._indexer_stations()
+            self._calculer_orientations()
 
         # 2) associer au moins un bac par aliment (et boucler si surplus de bacs)
         self.bacs_config.clear()
@@ -112,33 +229,61 @@ class Carte:
         return True
 
     def dessiner(self, canvas: tk.Canvas) -> None:
-        """Dessine la grille et les labels. Pour ASSEMBLAGE, affiche le contenu."""
         canvas.config(width=self.largeur_px, height=self.hauteur_px)
         canvas.delete("all")
-        cw = self.largeur_px / self.cols
-        ch = self.hauteur_px / self.rows
+
+        taille = min(self.largeur_px // self.cols, self.hauteur_px // self.rows)
+        cw = ch = int(taille)
+
+        floor_tex = self.textures.get((SOL, DIR_S))
 
         for y in range(self.rows):
             for x in range(self.cols):
                 code = self.grille[y][x]
-                fill = self.couleurs.get(code, "white")
                 x1, y1 = x * cw, y * ch
                 x2, y2 = (x + 1) * cw, (y + 1) * ch
-                canvas.create_rectangle(x1, y1, x2, y2, outline="black", fill=fill)
 
-                # Labels (sauf murs/sol)
-                if code in (MUR, SOL):
+                # 1) SOL partout (sauf murs si tu préfères)
+                if code != MUR:
+                    if floor_tex is not None:
+                        canvas.create_image(x1, y1, image=floor_tex, anchor="nw")
+                    else:
+                        canvas.create_rectangle(
+                            x1, y1, x2, y2,
+                            outline="",
+                            fill=self.couleurs.get(SOL, "burlywood")
+                        )
+
+                # 2) Station / mur par-dessus
+                if code == MUR:
+                    # murs : couleur pleine pour l'instant
+                    canvas.create_rectangle(
+                        x1, y1, x2, y2,
+                        outline="",
+                        fill=self.couleurs.get(MUR, "black")
+                    )
+                elif code != SOL:
+                    orient = self.orientations.get((x, y), DIR_S)
+                    tex = self.textures.get((code, orient))
+                    if tex is not None:
+                        canvas.create_image(x1, y1, image=tex, anchor="nw")
+                    else:
+                        canvas.create_rectangle(
+                            x1, y1, x2, y2,
+                            outline="",
+                            fill=self.couleurs.get(code, "white")
+                        )
+
+                # 3) Labels (comme avant)
+                if code in (SOL, MUR):
                     continue
 
-                # label de base
                 label = self.labels_base.get(code, "")
 
-                # Bacs : afficher l'aliment assigné
                 if code == BAC:
                     nom = self.bacs_config.get((x, y), ("?", 0.0))[0]
                     label = f"Bac\n{nom}"
 
-                # Assemblage : afficher contenu (noms)
                 if code == ASSEMBLAGE:
                     stock = self.assemblage_stock.get((x, y), [])
                     if stock:
