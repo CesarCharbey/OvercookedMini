@@ -169,6 +169,7 @@ class Game:
 
         # temps des actions
         self.action_en_cours = None
+        self.action_debut = 0.0
         self.action_fin = 0.0
 
         self._refresh()
@@ -288,8 +289,61 @@ class Game:
             )
             dy += 18
 
+    def _dessiner_progress_stations(self):
+        """Affiche une petite barre de progression sur la station où une action est en cours."""
+        if not self.action_en_cours:
+            return
+
+        type_action, pos_action, aliment = self.action_en_cours
+        if not pos_action:
+            return
+
+        now = time.time()
+        total = self.action_fin - self.action_debut
+        if total <= 0:
+            return
+
+        t = (now - self.action_debut) / total
+        t = max(0.0, min(1.0, t))  # clamp 0..1
+
+        sx, sy = pos_action
+
+        # même taille de tuile que pour la carte / joueur
+        tile = min(self.carte.largeur_px // self.carte.cols,
+                self.carte.hauteur_px // self.carte.rows)
+        cw = ch = int(tile)
+
+        x1 = sx * cw
+        y1 = sy * ch
+        x2 = x1 + cw
+
+        # petite barre en haut de la case
+        margin = 4
+        bar_h = 6
+        bx1 = x1 + margin
+        bx2 = x2 - margin
+        by1 = y1 + margin
+        by2 = by1 + bar_h
+
+        # fond sombre
+        self.canvas.create_rectangle(bx1, by1, bx2, by2,
+                                    fill="#222", outline="black")
+
+        # couleur selon type d'action
+        if type_action == "DECOUPE":
+            fill_color = "#ffb347"  # orange
+        elif type_action == "CUISSON":
+            fill_color = "#ff6961"  # rouge
+        else:
+            fill_color = "#6af06a"  # vert par défaut
+
+        fx2 = bx1 + t * (bx2 - bx1)
+        self.canvas.create_rectangle(bx1, by1, fx2, by2,
+                                    fill=fill_color, outline="")
+
     def _refresh(self):
         self.player.dessiner(self.canvas, self.carte)
+        self._dessiner_progress_stations()
         self._dessiner_debug_path()
         self._dessiner_hud()
 
@@ -400,8 +454,10 @@ class Game:
             if etat_requis == EtatAliment.COUPE and p.item.etat == EtatAliment.SORTI_DU_BAC and not p.item.est_perime:
                 from recette import TEMPS_COUPE
                 duree = TEMPS_COUPE.get(p.item.nom, 1.0)
-                self.action_en_cours = ("DECOUPE", p.est_adjacent_a(self.carte.pos_decoupes), p.item)
-                self.action_fin = time.time() + duree
+                pos_dec = p.est_adjacent_a(self.carte.pos_decoupes)
+                self.action_en_cours = ("DECOUPE", pos_dec, p.item)
+                self.action_debut = time.time()
+                self.action_fin = self.action_debut + duree
                 self._refresh()
                 return True
 
@@ -423,7 +479,8 @@ class Game:
                     duree = TEMPS_CUISSON.get(p.item.nom, 2.0)
                     pos_station = adj_four or adj_poele
                     self.action_en_cours = ("CUISSON", pos_station, p.item)
-                    self.action_fin = time.time() + duree
+                    self.action_debut = time.time()
+                    self.action_fin = self.action_debut + duree
                     self._refresh()
                     return True
 

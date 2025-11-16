@@ -57,13 +57,17 @@ class Carte:
             JOUEUR: "Joueur",
         }
 
+        #textures étendues pour le service
+        self.service_tex_h = None  # 2x1, étendu vers la droite
+        self.service_tex_v = None  # 1x2, étendu vers le bas
+
         # fichiers de textures par type de tuile
         self.texture_files = {
             SOL: "texture/Tiles/floor.png",
             BAC: "texture/Tiles/bread_crate.png",
             DECOUPE: "texture/Tiles/cutting_board.png",
             FOUR: "texture/Tiles/oven.png",
-            #SERVICE: "texture/Tiles/service.png",
+            SERVICE: "texture/Tiles/service.png",
             POELE: "texture/Tiles/pan.png",
             ASSEMBLAGE: "texture/Tiles/plate.png",
             # MUR: "texture/Tiles/wall.png",  # si un jour tu en ajoutes
@@ -154,36 +158,55 @@ class Carte:
 
 
     def _charger_textures(self, largeur_px, hauteur_px):
-        """Charge les textures de toutes les tuiles + versions rotatées."""
+        """Charge les textures de toutes les tuiles + service 2x1."""
+        # tuile carrée
         taille = min(largeur_px // self.cols, hauteur_px // self.rows)
         cw = ch = int(taille)
 
         self.textures = {}
+        self.service_tex_h = None
+        self.service_tex_v = None
 
         for code, path in self.texture_files.items():
             try:
-                base = Image.open(path).convert("RGBA").resize((int(cw), int(ch)), Image.LANCZOS)
+                import os
+                from PIL import Image, ImageTk
+                img_raw = Image.open(path).convert("RGBA")
             except Exception as e:
                 print(f"Erreur chargement texture {path} :", e)
                 continue
 
-            # SOL même image pour toutes les directions
+            # SERVICE 2 cases
+            if code == SERVICE:
+                # 2x1 horizontal (vers la droite)
+                img_h = img_raw.resize((cw * 2, ch), Image.LANCZOS)
+                # 1x2 vertical (vers le bas) : on tourne le sprite
+                img_v = img_raw.rotate(90, expand=True).resize((cw, ch * 2), Image.LANCZOS)
+
+                self.service_tex_h = ImageTk.PhotoImage(img_h)
+                self.service_tex_v = ImageTk.PhotoImage(img_v)
+                continue
+
+            base = img_raw.resize((cw, ch), Image.LANCZOS)
+
             if code == SOL:
                 tex = ImageTk.PhotoImage(base)
-                for d in (DIR_N, DIR_E, DIR_S, DIR_W):
-                    self.textures[(code, d)] = tex
+                self.textures[(code, "N")] = tex
+                self.textures[(code, "S")] = tex
+                self.textures[(code, "E")] = tex
+                self.textures[(code, "W")] = tex
                 continue
 
             img_s = base
-            img_n = base.rotate(180, expand=True).resize((int(cw), int(ch)), Image.LANCZOS)
-            img_e = base.rotate(-90, expand=True).resize((int(cw), int(ch)), Image.LANCZOS)
-            img_w = base.rotate(90, expand=True).resize((int(cw), int(ch)), Image.LANCZOS)
+            img_n = base.rotate(180, expand=True).resize((cw, ch), Image.LANCZOS)
+            img_e = base.rotate(-90, expand=True).resize((cw, ch), Image.LANCZOS)
+            img_w = base.rotate(90,  expand=True).resize((cw, ch), Image.LANCZOS)
 
-            self.textures[(code, DIR_S)] = ImageTk.PhotoImage(img_s)
-            self.textures[(code, DIR_N)] = ImageTk.PhotoImage(img_n)
-            self.textures[(code, DIR_E)] = ImageTk.PhotoImage(img_e)
-            self.textures[(code, DIR_W)] = ImageTk.PhotoImage(img_w)
-
+            from PIL import ImageTk
+            self.textures[(code, "S")] = ImageTk.PhotoImage(img_s)
+            self.textures[(code, "N")] = ImageTk.PhotoImage(img_n)
+            self.textures[(code, "E")] = ImageTk.PhotoImage(img_e)
+            self.textures[(code, "W")] = ImageTk.PhotoImage(img_w)
 
     @property
     def rows(self) -> int: return len(self.grille)
@@ -232,18 +255,20 @@ class Carte:
         canvas.config(width=self.largeur_px, height=self.hauteur_px)
         canvas.delete("all")
 
+        # tuile carrée
         taille = min(self.largeur_px // self.cols, self.hauteur_px // self.rows)
         cw = ch = int(taille)
 
         floor_tex = self.textures.get((SOL, DIR_S))
 
+        # --------- PASSAGE 1 : SOLS ----------
         for y in range(self.rows):
             for x in range(self.cols):
                 code = self.grille[y][x]
                 x1, y1 = x * cw, y * ch
                 x2, y2 = (x + 1) * cw, (y + 1) * ch
 
-                # 1) SOL partout (sauf murs si tu préfères)
+                # sol partout sauf murs (comme avant)
                 if code != MUR:
                     if floor_tex is not None:
                         canvas.create_image(x1, y1, image=floor_tex, anchor="nw")
@@ -254,27 +279,52 @@ class Carte:
                             fill=self.couleurs.get(SOL, "burlywood")
                         )
 
-                # 2) Station / mur par-dessus
+        # --------- PASSAGE 2 : STATIONS + MURS + LABELS ----------
+        for y in range(self.rows):
+            for x in range(self.cols):
+                code = self.grille[y][x]
+                x1, y1 = x * cw, y * ch
+                x2, y2 = (x + 1) * cw, (y + 1) * ch
+
+                # 2.a) Murs
                 if code == MUR:
-                    # murs : couleur pleine pour l'instant
-                    canvas.create_rectangle(
-                        x1, y1, x2, y2,
-                        outline="",
-                        fill=self.couleurs.get(MUR, "black")
-                    )
+                    fill = self.couleurs.get(MUR, "black")
+                    canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
+
+                # 2.b) Service : 1 texture pour 2 cases (vertical)
+                elif code == SERVICE:
+                    # compter combien de SERVICE consécutifs sont au-dessus
+                    count_above = 0
+                    yy = y - 1
+                    while yy >= 0 and self.grille[yy][x] == SERVICE:
+                        count_above += 1
+                        yy -= 1
+
+                    # si count_above est impair -> on est la moitié basse d'une paire -> rien à dessiner
+                    if count_above % 2 == 1:
+                        pass
+                    else:
+                        # on est candidat "haut de paire" -> vérifier qu'on a bien un SERVICE en dessous
+                        if y + 1 < self.rows and self.grille[y + 1][x] == SERVICE:
+                            if self.service_tex_v:
+                                canvas.create_image(
+                                    x1, y1,
+                                    image=self.service_tex_v,
+                                    anchor="nw"
+                                )
+                        # sinon (SERVICE isolé) : on ne dessine rien de spécial
+
+                # 2.c) Autres stations (four, bac, poêle, découpe, assemblage...)
                 elif code != SOL:
                     orient = self.orientations.get((x, y), DIR_S)
                     tex = self.textures.get((code, orient))
                     if tex is not None:
                         canvas.create_image(x1, y1, image=tex, anchor="nw")
                     else:
-                        canvas.create_rectangle(
-                            x1, y1, x2, y2,
-                            outline="",
-                            fill=self.couleurs.get(code, "white")
-                        )
+                        fill = self.couleurs.get(code, "white")
+                        canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
 
-                # 3) Labels (comme avant)
+                # 2.d) Labels
                 if code in (SOL, MUR):
                     continue
 
