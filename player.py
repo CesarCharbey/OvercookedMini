@@ -39,7 +39,7 @@ class Player:
                 y0 = row * TILE_SIZE
                 sub = img.crop((x0, y0, x0 + TILE_SIZE, y0 + TILE_SIZE))
                 # 🔹 Double la taille
-                sub = sub.resize((TILE_SIZE * 3, TILE_SIZE *3), Image.NEAREST)
+                sub = sub.resize((TILE_SIZE * 2, TILE_SIZE *2), Image.NEAREST)
                 self.frames[d].append(ImageTk.PhotoImage(sub))
 
         self.current_image = self.frames["down"][0]
