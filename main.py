@@ -172,6 +172,9 @@ class Game:
         self.action_debut = 0.0
         self.action_fin = 0.0
 
+        # cuissons asynchrones : (x,y) -> (aliment, t_debut, t_fin)
+        self.cuissons: dict[Tuple[int, int], Tuple[Aliment, float, float]] = {}
+
         self._refresh()
         self.root.after(TICK_MS, self._tick)
 
@@ -290,56 +293,69 @@ class Game:
             dy += 18
 
     def _dessiner_progress_stations(self):
-        """Affiche une petite barre de progression sur la station où une action est en cours."""
-        if not self.action_en_cours:
-            return
+        """Affiche des barres de progression + icônes sur découpe et cuissons."""
+        # helper interne
+        def draw_bar(sx, sy, t0, tfin, kind: str):
+            now = time.time()
+            total = tfin - t0
+            if total <= 0:
+                return
+            ratio = max(0.0, min(1.0, (now - t0) / total))
 
-        type_action, pos_action, aliment = self.action_en_cours
-        if not pos_action:
-            return
+            tile = min(self.carte.largeur_px // self.carte.cols,
+                       self.carte.hauteur_px // self.carte.rows)
+            cw = ch = int(tile)
 
-        now = time.time()
-        total = self.action_fin - self.action_debut
-        if total <= 0:
-            return
+            x1 = sx * cw
+            y1 = sy * ch
+            x2 = x1 + cw
 
-        t = (now - self.action_debut) / total
-        t = max(0.0, min(1.0, t))  # clamp 0..1
+            margin = 4
+            bar_h = 6
+            bx1 = x1 + margin
+            bx2 = x2 - margin
+            by1 = y1 + margin
+            by2 = by1 + bar_h
 
-        sx, sy = pos_action
+            # fond
+            self.canvas.create_rectangle(bx1, by1, bx2, by2,
+                                         fill="#222", outline="black")
 
-        # même taille de tuile que pour la carte / joueur
-        tile = min(self.carte.largeur_px // self.carte.cols,
-                self.carte.hauteur_px // self.carte.rows)
-        cw = ch = int(tile)
+            if kind == "DECOUPE":
+                color = "#ffb347"
+                icon = "🔪"
+            elif kind == "CUISSON":
+                color = "#ff6961"
+                icon = "🔥"
+            else:
+                color = "#6af06a"
+                icon = "⚙️"
 
-        x1 = sx * cw
-        y1 = sy * ch
-        x2 = x1 + cw
+            fx2 = bx1 + ratio * (bx2 - bx1)
+            self.canvas.create_rectangle(bx1, by1, fx2, by2,
+                                         fill=color, outline="")
 
-        # petite barre en haut de la case
-        margin = 4
-        bar_h = 6
-        bx1 = x1 + margin
-        bx2 = x2 - margin
-        by1 = y1 + margin
-        by2 = by1 + bar_h
+            # icône à gauche
+            icon_x = bx1 - 2
+            icon_y = (by1 + by2) / 2
+            self.canvas.create_text(
+                icon_x, icon_y,
+                text=icon,
+                anchor="e",
+                font=("Arial", 10)
+            )
 
-        # fond sombre
-        self.canvas.create_rectangle(bx1, by1, bx2, by2,
-                                    fill="#222", outline="black")
+        # 1) Découpe (bloquante)
+        if self.action_en_cours:
+            type_action, pos_action, aliment = self.action_en_cours
+            if type_action == "DECOUPE" and pos_action:
+                sx, sy = pos_action
+                draw_bar(sx, sy, self.action_debut, self.action_fin, "DECOUPE")
 
-        # couleur selon type d'action
-        if type_action == "DECOUPE":
-            fill_color = "#ffb347"  # orange
-        elif type_action == "CUISSON":
-            fill_color = "#ff6961"  # rouge
-        else:
-            fill_color = "#6af06a"  # vert par défaut
+        # 2) Cuissons asynchrones
+        for (sx, sy), (alim, t0, tfin) in self.cuissons.items():
+            draw_bar(sx, sy, t0, tfin, "CUISSON")
 
-        fx2 = bx1 + t * (bx2 - bx1)
-        self.canvas.create_rectangle(bx1, by1, fx2, by2,
-                                    fill=fill_color, outline="")
 
     def _refresh(self):
         self.player.dessiner(self.canvas, self.carte)
@@ -412,6 +428,17 @@ class Game:
         # fallback
         return self.recettes[0]
     
+    def _ensure_bot_recette_valide(self):
+        """S'assure que bot_recette pointe vers une recette encore demandée."""
+        if not self.recettes:
+            self.bot_recette = None
+            return
+        if self.bot_recette not in self.recettes:
+            self.bot_recette = self.choisir_recette()
+            self.next_req_idx = 0
+            self.current_assembly = None
+
+    
     # ---------- Actions “joueur” ----------
     def try_action_e(self):
         p = self.player
@@ -462,11 +489,26 @@ class Game:
                 return True
 
 
-        # --- CUISSON : seulement si requis CUIT ---
+        # --- CUISSON : seulement si requis CUIT (asynchrone) ---
         adj_four = p.est_adjacent_a(self.carte.pos_fours)
         adj_poele = p.est_adjacent_a(self.carte.pos_poeles)
+        pos_station = adj_four or adj_poele
 
-        if p.item and (adj_four or adj_poele) and self.bot_recette:
+        # 1) Récupérer un aliment déjà cuit sur la station si on a les mains vides
+        if pos_station and p.item is None:
+            slot = self.cuissons.get(pos_station)
+            if slot:
+                alim, t0, tfin = slot
+                # si la cuisson est terminée et que ce n'est pas périmé -> on prend l'aliment
+                if time.time() >= tfin and not alim.est_perime:
+                    p.item = alim
+                    del self.cuissons[pos_station]
+                    self._mark_progress()
+                    self._refresh()
+                    return True
+
+        # 2) Lancer une cuisson asynchrone
+        if p.item and pos_station and self.bot_recette:
             etat_requis = None
             for req in self.bot_recette.requis:
                 if req.nom == p.item.nom:
@@ -475,92 +517,96 @@ class Game:
 
             if etat_requis == EtatAliment.CUIT and not p.item.est_perime:
                 if p.item.etat in (EtatAliment.SORTI_DU_BAC, EtatAliment.COUPE):
+                    # four/poêle déjà occupé -> on ne fait rien
+                    if pos_station in self.cuissons:
+                        return False
+
                     from recette import TEMPS_CUISSON
                     duree = TEMPS_CUISSON.get(p.item.nom, 2.0)
-                    pos_station = adj_four or adj_poele
-                    self.action_en_cours = ("CUISSON", pos_station, p.item)
-                    self.action_debut = time.time()
-                    self.action_fin = self.action_debut + duree
+
+                    # on dépose l'aliment sur la station et on le fait cuire en fond
+                    alim = p.item
+                    p.item = None
+                    start = time.time()
+                    self.cuissons[pos_station] = (alim, start, start + duree)
+
+                    self._mark_progress()
                     self._refresh()
                     return True
-
 
         # --- ASSEMBLAGE ---
         adj_ass = p.est_adjacent_a(self.carte.pos_assemblages)
         if adj_ass:
             stock = self.carte.assemblage_stock.setdefault(adj_ass, [])
 
-            # Si la recette courante est déjà complète ici : finaliser sans déposer
+            # 0) Ne jamais considérer comme "impossible" une assiette qui contient déjà un plat final demandé
+            plats_demandes = {r.nom for r in self.recettes}
+            if stock:
+                est_plat_final = (
+                    len(stock) == 1
+                    and stock[0].nom in plats_demandes
+                    and stock[0].etat == EtatAliment.CUIT
+                )
+                if (not est_plat_final) and not recettes_possibles_pour_items(stock, self.recettes):
+                    print("[ASSEMBLAGE] reset assiette impossible ->", adj_ass)
+                    stock.clear()
+
+            # 1) Si la recette courante est déjà complète ici : finaliser sans déposer
             if self.bot_recette and p.item is None and items_completent_recette(stock, self.bot_recette):
                 stock.clear()
-                stock.append(Aliment(nom=self.bot_recette.nom, etat=EtatAliment.CUIT, vitesse_peremption=0.0005))
+                stock.append(
+                    Aliment(
+                        nom=self.bot_recette.nom,
+                        etat=EtatAliment.CUIT,
+                        vitesse_peremption=0.0005,
+                    )
+                )
                 self._mark_progress()
                 self._refresh()
                 return True
 
-            # Déposer ?
+            # 2) Déposer un ingrédient ?
             if p.item and not p.item.est_perime:
+                # On ne regarde QUE la recette courante pour cette assiette
+                recettes_cible = [self.bot_recette] if self.bot_recette else []
                 tentative = stock + [p.item]
-                possibles = recettes_possibles_pour_items(tentative, self.recettes)
+                possibles = recettes_possibles_pour_items(tentative, recettes_cible)
 
                 if not possibles:
-                    # Mauvais ingrédient : si assembleur vide dispo -> y déposer, sinon jeter + pause + restart
-                    assembleurs_vides = [pos for pos in self.carte.pos_assemblages
-                                         if len(self.carte.assemblage_stock.get(pos, [])) == 0]
-                    if assembleurs_vides:
-                        # si celui-ci est vide, déposer directement
-                        if len(stock) == 0:
-                            self.carte.assemblage_stock[adj_ass].append(p.item)
-                            p.item = None
-                            self._mark_progress()
-                            self._refresh()
-                            return True
-                        # sinon aller vers l'assembleur vide le plus proche
-                        adj_targets = cases_adjacentes_a_stations(self.carte, assembleurs_vides)
-                        path = bfs_path(self.carte, (p.x, p.y), adj_targets)
-                        if path:
-                            self.current_path = path
-                            self.move_cooldown = 0
-                            return True
-
-                    # Tous pleins OU pas d'assembleur vide atteignable -> jeter + purge + pause + restart
-                    all_full = all(len(self.carte.assemblage_stock.get(pos, [])) > 0 for pos in self.carte.pos_assemblages)
-                    if all_full:
-                        # jette l'item en main
+                    # Si l'assiette est vide, on accepte quand même l'ingrédient
+                    # comme base d'une tentative pour bot_recette
+                    if len(stock) == 0 and self.bot_recette:
+                        stock.append(p.item)
                         p.item = None
-                        # purge 1 item du plus proche assembleur non vide
-                        non_vides = [pos for pos in self.carte.pos_assemblages
-                                     if len(self.carte.assemblage_stock.get(pos, [])) > 0]
-                        if non_vides:
-                            nearest = min(non_vides, key=lambda t: abs(p.x - t[0]) + abs(p.y - t[1]))
-                            st = self.carte.assemblage_stock.get(nearest, [])
-                            if st:
-                                st.pop()
-                        self._restart_recipe_flow()
+                        self._mark_progress()
+                        self._refresh()
                         return True
 
-                    # Sinon essayer un autre assembleur
-                    autres = [pos for pos in self.carte.pos_assemblages if pos != adj_ass]
-                    if autres:
-                        adj_targets = cases_adjacentes_a_stations(self.carte, autres)
-                        path = bfs_path(self.carte, (p.x, p.y), adj_targets)
-                        if path:
-                            self.current_path = path
-                            self.move_cooldown = 0
-                            return True
-                    return False
+                    # Sinon : on "jette" simplement l'item en main (poubelle logique)
+                    # mais on ne touche PAS aux assiettes existantes
+                    print("[ASSEMBLAGE] poubelle main ->", p.item.nom)
+                    p.item = None
+                    self._mark_progress()
+                    self._refresh()
+                    return True
 
-                # Compatible -> déposer
+                # Compatible avec la recette courante -> déposer
                 stock.append(p.item)
                 p.item = None
 
+                # Est-ce que cette assiette complète la recette courante ?
                 completed_now = False
-                for r in possibles:
-                    if items_completent_recette(stock, r):
-                        stock.clear()
-                        stock.append(Aliment(nom=r.nom, etat=EtatAliment.CUIT, vitesse_peremption=0.0005))
-                        completed_now = True
-                        break
+                if self.bot_recette and items_completent_recette(stock, self.bot_recette):
+                    stock.clear()
+                    stock.append(
+                        Aliment(
+                            nom=self.bot_recette.nom,
+                            etat=EtatAliment.CUIT,
+                            vitesse_peremption=0.0005,
+                        )
+                    )
+                    completed_now = True
+
                 if not completed_now and self.bot_recette:
                     self.next_req_idx = (self.next_req_idx + 1) % len(self.bot_recette.requis)
 
@@ -568,7 +614,7 @@ class Game:
                 self._refresh()
                 return True
 
-            # Reprendre plat final prêt
+            # 3) Reprendre plat final prêt
             if p.item is None and stock:
                 if len(stock) == 1 and stock[0].nom in [r.nom for r in self.recettes]:
                     p.item = stock.pop(0)
@@ -577,6 +623,7 @@ class Game:
                     # aller au Service
                     self._aller_adjacent("SERVICE")
                     return True
+
 
         # --- SERVICE : livrer si adjacent (géométrique) ---
         if p.item:
@@ -590,14 +637,109 @@ class Game:
                         self.score += points
                         self.recettes_livrees.append((r.nom, r.complexite))
                         p.item = None
-                        self.recettes.pop(idx)
+
+                        # on retire la recette servie et on en ajoute une nouvelle
+                        old = self.recettes.pop(idx)
                         self.recettes.append(nouvelle_recette())
+
+                        # ne plus suivre une recette qui n'existe plus
+                        if self.bot_recette is old or self.bot_recette not in self.recettes:
+                            self.bot_recette = self.choisir_recette()
+                            self.next_req_idx = 0
+                            self.current_assembly = None
+
                         self._mark_progress()
                         self._refresh()
                         return True
-
   
         return False
+
+    def _next_req_index_disponible(self, recette: Recette) -> Optional[int]:
+        """
+        Renvoie l'index d'un ingrédient de la recette qu'il est encore UTILE de préparer.
+
+        - on évite ceux qui sont déjà en cuisson (même nom)
+        - on évite ceux qui sont déjà présents en état final
+          (dans la main, sur un assembleur, ou dans un four/poêle)
+        """
+
+        # noms d'aliments actuellement en cuisson (toutes recettes confondues)
+        cuisson_noms = {alim.nom for (alim, _, _) in self.cuissons.values()}
+
+        # pour chaque requi de la recette, on marque s'il est déjà couvert
+        couverts = [False] * len(recette.requis)
+
+        def mark_couvert(nom: str, etat):
+            """Marque un requis comme déjà satisfait si on trouve (nom, état_final)."""
+            for i, req in enumerate(recette.requis):
+                if couverts[i]:
+                    continue
+                if nom == req.nom and etat == req.etat_final:
+                    couverts[i] = True
+                    return
+
+        # 1) Ce qu'on a en main
+        if self.player.item and not self.player.item.est_perime:
+            mark_couvert(self.player.item.nom, self.player.item.etat)
+
+        # 2) Ce qu'il y a sur les assiettes d'assemblage
+        for stock in self.carte.assemblage_stock.values():
+            for a in stock:
+                if a.est_perime:
+                    continue
+                mark_couvert(a.nom, a.etat)
+
+        # 3) Ce qui est dans les fours / poêles
+        for alim, t0, tfin in self.cuissons.values():
+            if alim.est_perime:
+                continue
+            mark_couvert(alim.nom, alim.etat)
+
+        # 4) Choisir le premier requis qui n'est pas déjà couvert
+        #    et qui n'est pas déjà en cuisson
+        for i, req in enumerate(recette.requis):
+            if couverts[i]:
+                continue
+            if req.nom in cuisson_noms:
+                continue
+            return i
+
+        # tout ce qu'il faut pour cette recette est soit prêt, soit en cours de cuisson
+        return None
+
+    
+    def _stations_cuisson_pretes(self) -> List[Tuple[int, int]]:
+        """
+        Renvoie la liste des fours/poêles où la cuisson est terminée
+        et l'aliment n'est pas périmé.
+        """
+        now = time.time()
+        res: List[Tuple[int, int]] = []
+        for pos, (alim, t0, tfin) in self.cuissons.items():
+            if now >= tfin and not alim.est_perime:
+                res.append(pos)
+        return res
+
+    def _planifier_autre_recette(self):
+        """
+        Cherche une autre recette pour laquelle on peut préparer au moins un ingrédient
+        (qui n'est pas déjà en cuisson). Si trouvée, met à jour bot_recette / next_req_idx
+        et planifie un déplacement vers le bac correspondant.
+        """
+        """for r in self.recettes:
+            if r is self.bot_recette:
+                continue
+            idx = self._next_req_index_disponible(r)
+            if idx is not None:
+                self.bot_recette = r
+                self.current_assembly = None
+                self.next_req_idx = idx
+                target_req = r.requis[idx]
+                self._aller_adjacent("BAC", cible_aliment=target_req.nom)
+                return
+        # aucune autre recette pour avancer -> on ne fait rien (on attend)"""
+        return
+
 
     # ---------- Planification ----------
     def _planifier(self):
@@ -606,7 +748,7 @@ class Game:
             self._aller_adjacent("SERVICE")
             return
 
-        # Si un ingrédient est en main -> étape selon l'état requis
+        # Si un ingrédient est en main -> étape selon l'état requis de la recette courante
         if self.player.item and self.bot_recette:
             a = self.player.item
             etat_requis = None
@@ -617,24 +759,37 @@ class Game:
 
             if etat_requis == EtatAliment.COUPE:
                 if a.etat == EtatAliment.SORTI_DU_BAC:
-                    self._aller_adjacent("DECOUPE"); return
+                    self._aller_adjacent("DECOUPE")
+                    return
                 else:
-                    self._aller_adjacent("ASSEMBLAGE"); return
+                    self._aller_adjacent("ASSEMBLAGE")
+                    return
             elif etat_requis == EtatAliment.CUIT:
                 if a.etat != EtatAliment.CUIT:
-                    self._aller_adjacent("FOUR_OU_POELE"); return
+                    self._aller_adjacent("FOUR_OU_POELE")
+                    return
                 else:
-                    self._aller_adjacent("ASSEMBLAGE"); return
+                    self._aller_adjacent("ASSEMBLAGE")
+                    return
             else:
-                self._aller_adjacent("ASSEMBLAGE"); return
+                self._aller_adjacent("ASSEMBLAGE")
+                return
 
-        # Sinon : exploiter un assembleur partiellement prêt pour la 1re recette
+        # À partir d'ici : pas d'objet en main
         if not self.recettes:
             return
+        self._ensure_bot_recette_valide()
         if self.bot_recette is None:
             self.bot_recette = self.choisir_recette()
 
-        # scan des assembleurs
+        stations_pretes = self._stations_cuisson_pretes()
+        if stations_pretes:
+            adj = cases_adjacentes_a_stations(self.carte, stations_pretes)
+            path = bfs_path(self.carte, (self.player.x, self.player.y), adj)
+            if path:
+                self.current_path = path
+                return
+        # ---------- 1) Essayer d'exploiter un assembleur partiellement prêt ----------
         best = None  # (pos, flags, matches, dist)
         for pos, stock in self.carte.assemblage_stock.items():
             flags = matched_flags_for_recipe(stock, self.bot_recette)
@@ -652,18 +807,31 @@ class Game:
             if all(flags):
                 self._aller_adjacent("ASSEMBLAGE")
                 return
-            # sinon, viser le 1er requis manquant
-            self.next_req_idx = first_missing_index(flags)
-            target_req = self.bot_recette.requis[self.next_req_idx]
+
+            # besoin d'un nouvel ingrédient pour cette recette
+            idx = self._next_req_index_disponible(self.bot_recette)
+            if idx is not None:
+                self.next_req_idx = idx
+                target_req = self.bot_recette.requis[idx]
+                self._aller_adjacent("BAC", cible_aliment=target_req.nom)
+                return
+
+            # aucun ingrédient dispo pour cette recette (probablement tous en cuisson) -> essayer une autre
+            #self._planifier_autre_recette()
+            return
+
+        # ---------- 2) Aucun assembleur utile -> prendre un ingrédient pour la recette courante ----------
+        idx = self._next_req_index_disponible(self.bot_recette)
+        if idx is not None:
+            self.current_assembly = None
+            self.next_req_idx = idx
+            target_req = self.bot_recette.requis[idx]
             self._aller_adjacent("BAC", cible_aliment=target_req.nom)
             return
 
-        # rien d'utile sur les assembleurs -> prendre 1er ingrédient
-        self.current_assembly = None
-        self.bot_recette = self.choisir_recette()
-        self.next_req_idx = 0
-        target_req = self.bot_recette.requis[self.next_req_idx]
-        self._aller_adjacent("BAC", cible_aliment=target_req.nom)
+        # ---------- 3) Recette courante bloquée (ingrédients déjà en cuisson) -> passer à une autre ----------
+        #self._planifier_autre_recette()
+
 
     def _aller_adjacent(self, type_cible: str, cible_aliment: Optional[str] = None):
         px, py = self.player.x, self.player.y
@@ -684,7 +852,11 @@ class Game:
         elif type_cible == "DECOUPE":
             stations = self.carte.pos_decoupes
         elif type_cible == "FOUR_OU_POELE":
-            stations = self.carte.pos_fours + self.carte.pos_poeles or self.carte.pos_decoupes
+            # On préfère les fours/poêles LIBRES si possible
+            toutes = self.carte.pos_fours + self.carte.pos_poeles
+            libres = [pos for pos in toutes if pos not in self.cuissons]
+            stations = libres or toutes
+
         elif type_cible == "ASSEMBLAGE":
             stations = [self.current_assembly] if self.current_assembly else self.carte.pos_assemblages
         elif type_cible == "SERVICE":
@@ -729,39 +901,47 @@ class Game:
         if self.player.item:
             self.player.item.tick(dt)
             if self.player.item and self.player.item.est_perime:
+                print("[PERIME] main ->", self.player.item.nom, self.player.item.etat)
                 self.player.item = None
 
         for pos, stock in self.carte.assemblage_stock.items():
             for a in list(stock):
                 a.tick(dt)
                 if a.est_perime:
+                    print("[PERIME] assiette", pos, "->", a.nom, a.etat)
                     stock.remove(a)
 
-        if now >= self.deadline: #fin de la partie on quitte
+        if now >= self.deadline:  # fin de la partie on quitte
             return
 
+        # ---- CUISSONS ASYNCHRONES ----
+        for pos, (alim, t0, tfin) in list(self.cuissons.items()):
+            alim.tick(dt)
+            # si ça pourrit dans le four -> on vide la station
+            if alim.est_perime:
+                del self.cuissons[pos]
+                continue
+            # quand le temps est écoulé, on le met en état CUIT (idempotent)
+            if now >= tfin and alim.etat != EtatAliment.CUIT:
+                alim.transformer(EtatAliment.CUIT)
 
-        # ---- ACTION EN COURS (découpe, cuisson...) ----
+        # ---- ACTION EN COURS (découpe BLOQUANTE uniquement) ----
         if self.action_en_cours:
-            # Si l'action est terminée
-            if time.time() >= self.action_fin:
-                type_action, pos_action, aliment = self.action_en_cours
+            type_action, pos_action, aliment = self.action_en_cours
 
-                # Finaliser l’action
-                if type_action == "DECOUPE":
+            if type_action == "DECOUPE":
+                if now >= self.action_fin:
                     aliment.transformer(EtatAliment.COUPE)
-                elif type_action == "CUISSON":
-                    aliment.transformer(EtatAliment.CUIT)
-
-                # Reset action
-                self.action_en_cours = None
-                self._mark_progress()
-
+                    self.action_en_cours = None
+                    self._mark_progress()
+                else:
+                    # découpe en cours -> on bloque l'IA
+                    self._refresh()
+                    self.root.after(TICK_MS, self._tick)
+                    return
             else:
-                # Action EN COURS → on stoppe totalement l'IA
-                self._refresh()
-                self.root.after(TICK_MS, self._tick)
-                return
+                # au cas où d'autres actions bloquantes apparaissent un jour
+                pass
 
         # anti-blocage avant décision
         self._check_blockage()
