@@ -61,20 +61,29 @@ class Carte:
         self.service_tex_h = None  # 2x1, étendu vers la droite
         self.service_tex_v = None  # 1x2, étendu vers le bas
 
-        # fichiers de textures par type de tuile
+        # fichiers de crates
+        self.crate_files_map = {
+            "pain":    "texture/Tiles/crate_bread.png",
+            "viande":  "texture/Tiles/crate_meat.png",
+            "oeuf":    "texture/Tiles/crate_egg.png",
+            "pate":    "texture/Tiles/crate_pasta.png",
+            "legume":  "texture/Tiles/crate_vegetables.png",
+        }
+
+        # fichiers de textures
         self.texture_files = {
             SOL: "texture/Tiles/floor.png",
-            BAC: "texture/Tiles/bread_crate.png",
             DECOUPE: "texture/Tiles/cutting_board.png",
             FOUR: "texture/Tiles/oven.png",
             SERVICE: "texture/Tiles/service.png",
             POELE: "texture/Tiles/pan.png",
             ASSEMBLAGE: "texture/Tiles/plate.png",
-            # MUR: "texture/Tiles/wall.png",  # si un jour tu en ajoutes
+            # MUR: "texture/Tiles/wall.png",  # si un jour on ajoute
         }
 
         # textures (clé = (code_tuile, direction))
         self.textures: Dict[Tuple[int, str], ImageTk.PhotoImage] = {}
+        self.crate_textures: Dict[Tuple[str, str], ImageTk.PhotoImage] = {} # (nom_aliment, orientation)
 
         # calcul des textures en fonction de la taille
         self._charger_textures(self.largeur_px, self.hauteur_px)
@@ -116,46 +125,19 @@ class Carte:
           - mur en bas  + gauche  -> regarde à gauche
           - sinon : opposé au mur le plus proche
         """
-
-        n = (y > 0 and self.grille[y - 1][x] == MUR)              # mur au-dessus
-        s = (y < self.rows - 1 and self.grille[y + 1][x] == MUR)  # mur en dessous
-        w = (x > 0 and self.grille[y][x - 1] == MUR)              # mur à gauche
-        e = (x < self.cols - 1 and self.grille[y][x + 1] == MUR)  # mur à droite
-
-        # --- 1) CAS ANGLES ---
-
-        # haut + droite -> regarde à droite
-        if n and e:
-            return DIR_E
-        # haut + gauche -> regarde à gauche
-        if n and w:
-            return DIR_W
-        # bas + droite -> regarde à droite
-        if s and e:
-            return DIR_E
-        # bas + gauche -> regarde à gauche
-        if s and w:
-            return DIR_W
-
-        # --- 2) CAS SIMPLE (un seul mur autour) ---
-
-        # mur au-dessus -> la station regarde vers le bas (cuisine)
-        if n:
-            return DIR_S
-        # mur en dessous -> la station regarde vers le haut
-        if s:
-            return DIR_N
-        # mur à droite -> la station regarde vers la gauche
-        if e:
-            return DIR_E
-        # mur à gauche -> la station regarde vers la droite
-        if w:
-            return DIR_W
-
-        # --- 3) AUCUN MUR DIRECTEMENT COLLÉ : orientation par défaut ---
-
-        return DIR_S  # par défaut, regarde vers le bas
-
+        n = (y > 0 and self.grille[y - 1][x] == MUR)
+        s = (y < self.rows - 1 and self.grille[y + 1][x] == MUR)
+        w = (x > 0 and self.grille[y][x - 1] == MUR)
+        e = (x < self.cols - 1 and self.grille[y][x + 1] == MUR)
+        if n and e: return DIR_E
+        if n and w: return DIR_W
+        if s and e: return DIR_E
+        if s and w: return DIR_W
+        if n: return DIR_S
+        if s: return DIR_N
+        if e: return DIR_E
+        if w: return DIR_W
+        return DIR_S
 
     def _charger_textures(self, largeur_px, hauteur_px):
         """Charge les textures de toutes les tuiles + service 2x1."""
@@ -207,6 +189,16 @@ class Carte:
             self.textures[(code, "N")] = ImageTk.PhotoImage(img_n)
             self.textures[(code, "E")] = ImageTk.PhotoImage(img_e)
             self.textures[(code, "W")] = ImageTk.PhotoImage(img_w)
+        
+        # 2. Chargement des textures BACS dynamiques
+        for aliment_nom, path in self.crate_files_map.items():
+            img_raw = Image.open(path).convert("RGBA")
+            base = img_raw.resize((cw, ch), Image.LANCZOS)
+            # On génère les 4 orientations pour chaque type de crate
+            self.crate_textures[(aliment_nom, "S")] = ImageTk.PhotoImage(base)
+            self.crate_textures[(aliment_nom, "N")] = ImageTk.PhotoImage(base.rotate(180))
+            self.crate_textures[(aliment_nom, "E")] = ImageTk.PhotoImage(base.rotate(-90))
+            self.crate_textures[(aliment_nom, "W")] = ImageTk.PhotoImage(base.rotate(90))
 
     @property
     def rows(self) -> int: return len(self.grille)
@@ -268,7 +260,6 @@ class Carte:
                 x1, y1 = x * cw, y * ch
                 x2, y2 = (x + 1) * cw, (y + 1) * ch
 
-                # sol partout sauf murs (comme avant)
                 if code != MUR:
                     if floor_tex is not None:
                         canvas.create_image(x1, y1, image=floor_tex, anchor="nw")
@@ -279,32 +270,29 @@ class Carte:
                             fill=self.couleurs.get(SOL, "burlywood")
                         )
 
-        # --------- PASSAGE 2 : STATIONS + MURS + LABELS ----------
+        # --------- PASSAGE 2 : STATIONS + MURS ----------
         for y in range(self.rows):
             for x in range(self.cols):
                 code = self.grille[y][x]
                 x1, y1 = x * cw, y * ch
                 x2, y2 = (x + 1) * cw, (y + 1) * ch
 
-                # 2.a) Murs
+                # Murs
                 if code == MUR:
                     fill = self.couleurs.get(MUR, "black")
                     canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
 
-                # 2.b) Service : 1 texture pour 2 cases (vertical)
+                # Service
                 elif code == SERVICE:
-                    # compter combien de SERVICE consécutifs sont au-dessus
                     count_above = 0
                     yy = y - 1
                     while yy >= 0 and self.grille[yy][x] == SERVICE:
                         count_above += 1
                         yy -= 1
 
-                    # si count_above est impair -> on est la moitié basse d'une paire -> rien à dessiner
                     if count_above % 2 == 1:
                         pass
                     else:
-                        # on est candidat "haut de paire" -> vérifier qu'on a bien un SERVICE en dessous
                         if y + 1 < self.rows and self.grille[y + 1][x] == SERVICE:
                             if self.service_tex_v:
                                 canvas.create_image(
@@ -312,9 +300,31 @@ class Carte:
                                     image=self.service_tex_v,
                                     anchor="nw"
                                 )
-                        # sinon (SERVICE isolé) : on ne dessine rien de spécial
 
-                # 2.c) Autres stations (four, bac, poêle, découpe, assemblage...)
+                # BACS
+                elif code == BAC:
+                    orient = self.orientations.get((x, y), DIR_S)
+                    
+                    # Récupérer l'aliment
+                    nom = self.bacs_config.get((x, y), ("?", 0))[0]
+                    
+                    # Mapper le nom vers la bonne clé de texture
+                    # Si c'est un légume spécifique (tomate, etc), on utilise la caisse "legume"
+                    if nom in ["tomate", "salade", "aubergine", "courgette", "poivron"]:
+                        key = "legume"
+                    else:
+                        key = nom
+                    
+                    # Chercher dans le dico spécial crate_textures
+                    tex = self.crate_textures.get((key, orient))
+                    
+                    if tex:
+                        canvas.create_image(x1, y1, image=tex, anchor="nw")
+                    else:
+                        # Fallback (ce que tu voyais avant)
+                        canvas.create_rectangle(x1, y1, x2, y2, fill="blue", outline="")
+
+                # Autres stations
                 elif code != SOL:
                     orient = self.orientations.get((x, y), DIR_S)
                     tex = self.textures.get((code, orient))
@@ -324,23 +334,13 @@ class Carte:
                         fill = self.couleurs.get(code, "white")
                         canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
 
-                # 2.d) Labels
-                if code in (SOL, MUR):
-                    continue
-
-                label = self.labels_base.get(code, "")
-
-                if code == BAC:
-                    nom = self.bacs_config.get((x, y), ("?", 0.0))[0]
-                    label = f"Bac\n{nom}"
-
+                # 2.e) Labels
                 if code == ASSEMBLAGE:
                     stock = self.assemblage_stock.get((x, y), [])
                     if stock:
-                        noms = " + ".join(getattr(a, "nom", str(a)) for a in stock)
-                        label = f"Assemblage\n{noms}"
-
-                canvas.create_text(
-                    (x1 + x2) / 2, (y1 + y2) / 2,
-                    text=label, fill="black", font=("Arial", 9), justify="center"
-                )
+                        # Affiche seulement les noms des ingrédients
+                        label = " +\n".join(getattr(a, "nom", str(a)) for a in stock)
+                        canvas.create_text(
+                            (x1 + x2) / 2, (y1 + y2) / 2,
+                            text=label, fill="black", font=("Arial", 9), justify="center"
+                        )
