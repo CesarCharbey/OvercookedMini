@@ -199,10 +199,10 @@ RECETTES_POOL: List[Recette] = [
         IngredientRequis("poivron",  [EtatAliment.COUPE])
     ]),
 
-    Recette("Pizza maison", [
+    Recette("Pates aux legumes", [
         IngredientRequis("pate",    [EtatAliment.CUIT]),
         IngredientRequis("tomate",  [EtatAliment.COUPE]),
-        IngredientRequis("viande",  [EtatAliment.COUPE, EtatAliment.CUIT])
+        IngredientRequis("courgette",  [EtatAliment.COUPE, EtatAliment.CUIT])
     ])
 ]
 
