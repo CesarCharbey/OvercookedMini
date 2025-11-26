@@ -1,9 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import List, Optional
 import random
-
 
 # ---------------------------------------------------
 # ÉTATS DES ALIMENTS
@@ -13,32 +12,18 @@ class EtatAliment(Enum):
     COUPE = auto()
     CUIT = auto()
 
-
 # ---------------------------------------------------
-# DURÉES DE PRÉPARATION PAR ALIMENT
-# (nouveau : temps de coupe & cuisson)
+# DURÉES
 # ---------------------------------------------------
 TEMPS_COUPE = {
-    "tomate": 1.0,
-    "salade": 0.8,
-    "aubergine": 1.5,
-    "courgette": 1.2,
-    "poivron": 1.0,
-    "viande": 2.0,
-    "oeuf": 0.8,
-    "pain": 0.0,   # se coupe pas
+    "tomate": 1.0, "salade": 0.8, "aubergine": 1.5, "courgette": 1.2,
+    "poivron": 1.0, "viande": 2.0, "oeuf": 0.8, "pain": 0.0,
 }
 
 TEMPS_CUISSON = {
-    "tomate": 2.0,
-    "aubergine": 3.0,
-    "courgette": 2.0,
-    "poivron": 2.5,
-    "viande": 4.0,
-    "oeuf": 1.5,
-    "pate": 2.5,
+    "tomate": 2.0, "aubergine": 3.0, "courgette": 2.0, "poivron": 2.5,
+    "viande": 4.0, "oeuf": 1.5, "pate": 2.5,
 }
-
 
 # ---------------------------------------------------
 # ALIMENT
@@ -47,26 +32,15 @@ TEMPS_CUISSON = {
 class Aliment:
     nom: str
     etat: EtatAliment
-    vitesse_peremption: float
-    fraicheur: float = 1.0
-
-    def tick(self, dt_s: float) -> None:
-        self.fraicheur = max(0.0, self.fraicheur - self.vitesse_peremption * dt_s)
-
-    @property
-    def est_perime(self) -> bool:
-        return self.fraicheur <= 0.0
 
     def transformer(self, nouvel_etat: EtatAliment) -> None:
-        if not self.est_perime:
-            self.etat = nouvel_etat
+        self.etat = nouvel_etat
 
     def couleur_ui(self) -> str:
         if self.etat == EtatAliment.SORTI_DU_BAC: return "#7fbf7f"
         if self.etat == EtatAliment.COUPE:        return "#ffeb7a"
         if self.etat == EtatAliment.CUIT:         return "#ff9966"
         return "white"
-
 
 # ---------------------------------------------------
 # INGREDIENT REQUIS
@@ -81,7 +55,6 @@ class IngredientRequis:
         return self.etats[-1]
 
     def etape_suivante(self, etat_courant: EtatAliment) -> Optional[EtatAliment]:
-        """Retourne la prochaine étape nécessaire pour cet ingrédient."""
         if etat_courant == self.etat_final:
             return None
         try:
@@ -89,7 +62,6 @@ class IngredientRequis:
             return self.etats[idx + 1]
         except ValueError:
             return self.etats[0]
-
 
 # ---------------------------------------------------
 # RECETTE
@@ -99,83 +71,51 @@ class Recette:
     nom: str
     requis: List[IngredientRequis]
 
-    # === Complexité STRUCTURELLE : nombre d’étapes ===
     @property
     def complexite(self) -> int:
         return sum(len(req.etats) for req in self.requis)
 
-    # === Interactions réelles : prise + étapes + assemblage ===
     @property
     def interactions(self) -> int:
         total = 0
         for req in self.requis:
-            total += 1                  # prise au bac
-            total += len(req.etats)     # étapes
-            total += 1                  # assemblage
+            total += 1 + len(req.etats) + 1
         return total
 
-    # === Temps total estimé (nouveau) ===
     @property
     def temps_estime(self) -> float:
         total = 0.0
         for req in self.requis:
-            # coupe
-            if EtatAliment.COUPE in req.etats:
-                total += TEMPS_COUPE.get(req.nom, 1.0)
-            # cuisson
-            if EtatAliment.CUIT in req.etats:
-                total += TEMPS_CUISSON.get(req.nom, 2.0)
-
-        # petit bonus pour assemblage
+            if EtatAliment.COUPE in req.etats: total += TEMPS_COUPE.get(req.nom, 1.0)
+            if EtatAliment.CUIT in req.etats: total += TEMPS_CUISSON.get(req.nom, 2.0)
         total += len(self.requis) * 0.5
         return total
 
-    # === Difficulté réelle (pour scoring) ===
     @property
     def difficulte_reelle(self) -> float:
         return self.complexite * self.interactions
 
-
 # ---------------------------------------------------
-# INVENTAIRE DES ALIMENTS / BACS
+# INVENTAIRE
 # ---------------------------------------------------
+# On garde juste les noms pour savoir ce qui existe
+LEGUMES_NOMS = ["tomate", "salade", "aubergine", "courgette", "poivron"]
 
-LEGUMES = {
-    "tomate":     0.0005,
-    "salade":     0.0008,
-    "aubergine":  0.0007,
-    "courgette":  0.0006,
-    "poivron":    0.0007,
-}
-
+# Liste simple de tuples (nom, dummy_value) pour compatibilité avec carte.assigner_bacs
 ALIMENTS_BAC = [
-    ("viande", 0.0010),
-    ("pate",   0.0003),
-    ("oeuf",   0.0009),
-    ("pain",   0.0003),
-
-    # Bac unique légumes
-    ("legume", 0.0006),
+    ("viande", 0), ("pate", 0), ("oeuf", 0), ("pain", 0), ("legume", 0),
 ]
 
-
-def prendre_au_bac(nom: str, vitesse: float) -> Aliment:
+def prendre_au_bac(nom: str) -> Aliment:
     if nom == "legume":
-        raise RuntimeError("Appel incorrect : utiliser prendre_legume()")
-    return Aliment(nom=nom, etat=EtatAliment.SORTI_DU_BAC, vitesse_peremption=vitesse)
-
+        raise RuntimeError("Utiliser prendre_legume()")
+    return Aliment(nom=nom, etat=EtatAliment.SORTI_DU_BAC)
 
 def prendre_legume(nom_legume: str) -> Aliment:
-    return Aliment(
-        nom=nom_legume,
-        etat=EtatAliment.SORTI_DU_BAC,
-        vitesse_peremption=LEGUMES[nom_legume]
-    )
-
+    return Aliment(nom=nom_legume, etat=EtatAliment.SORTI_DU_BAC)
 
 # ---------------------------------------------------
 # RECETTES
-# (inchangées sauf que la difficulté/temps s'adaptent automatiquement)
 # ---------------------------------------------------
 
 RECETTES_POOL: List[Recette] = [
