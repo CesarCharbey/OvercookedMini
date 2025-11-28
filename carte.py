@@ -361,14 +361,3 @@ class Carte:
                                         ox = (i % 2) * 10
                                         oy = (i // 2) * 10
                                         canvas.create_image(x1 + 5 + ox, y1 + 5 + oy, image=photo, anchor="nw")
-
-                # 2.e) Labels (On peut garder le texte par dessus ou l'enlever)
-                if code == ASSEMBLAGE:
-                    stock = self.assemblage_stock.get((x, y), [])
-                    if stock:
-                        # Si tu préfères voir juste les images, commente ces lignes :
-                        label = " +\n".join(getattr(a, "nom", str(a)) for a in stock)
-                        canvas.create_text(
-                            (x1 + x2) / 2, (y1 + y2) / 2,
-                            text=label, fill="black", font=("Arial", 9), justify="center"
-                        )

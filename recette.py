@@ -61,6 +61,26 @@ TEXTURES_ALIMENTS = {
     # Pates
     ("pate", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Pasta_Fresh.png",
     ("pate", EtatAliment.CUIT):         "texture/FoodAssets/Pasta_Cooked.png",
+
+    # --- PLATS FINAUX (Assemblés) ---
+    # L'agent termine toujours les recettes avec l'état CUIT
+    ("Brochette mixte", EtatAliment.CUIT):    "texture/PlatsFinaux/Brochettes_Mixtes.png",
+    ("Burger complet", EtatAliment.CUIT):     "texture/PlatsFinaux/Burger_Complet.png",
+    ("Caviar d'aubergine", EtatAliment.CUIT): "texture/PlatsFinaux/Caviar_Daubergine.png",
+    ("Omelette", EtatAliment.CUIT):           "texture/PlatsFinaux/Omelette.png",
+    ("Pates bolognaises", EtatAliment.CUIT):  "texture/PlatsFinaux/Pate_Bolo.png",
+    ("Pates nature", EtatAliment.CUIT):       "texture/PlatsFinaux/Pate_Nature.png",
+    ("Pates aux legumes", EtatAliment.CUIT):  "texture/PlatsFinaux/Pates_Aux_Legumes.png",
+    ("Pates carbonara", EtatAliment.CUIT):    "texture/PlatsFinaux/Pates_Carbonara.png",
+    ("Poivron rôti", EtatAliment.CUIT):       "texture/PlatsFinaux/Poivron_Roti.png",
+    ("Ratatouille", EtatAliment.CUIT):        "texture/PlatsFinaux/Ratatouille.png",
+    ("Salade composee", EtatAliment.CUIT):    "texture/PlatsFinaux/Salade_Composee.png",
+    ("Salade coupee", EtatAliment.CUIT):      "texture/PlatsFinaux/Salade_Coupee.png",
+    ("Sandwich", EtatAliment.CUIT):           "texture/PlatsFinaux/Sandwich.png",
+    ("Soupe de legumes", EtatAliment.CUIT):   "texture/PlatsFinaux/Soupe_De_Legumes.png",
+    ("Tomate farcie", EtatAliment.CUIT):      "texture/PlatsFinaux/Tomate_Farcie.png",
+    ("Tomate poelee", EtatAliment.CUIT):      "texture/PlatsFinaux/Tomate_Poelee.png",
+    ("Viande cuite", EtatAliment.CUIT):       "texture/PlatsFinaux/Viande_Cuite.png",
 }
 
 # ---------------------------------------------------
