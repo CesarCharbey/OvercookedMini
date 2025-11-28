@@ -309,7 +309,6 @@ class Carte:
                     nom = self.bacs_config.get((x, y), ("?", 0))[0]
                     
                     # Mapper le nom vers la bonne clé de texture
-                    # Si c'est un légume spécifique (tomate, etc), on utilise la caisse "legume"
                     if nom in ["tomate", "salade", "aubergine", "courgette", "poivron"]:
                         key = "legume"
                     else:
@@ -321,7 +320,6 @@ class Carte:
                     if tex:
                         canvas.create_image(x1, y1, image=tex, anchor="nw")
                     else:
-                        # Fallback (ce que tu voyais avant)
                         canvas.create_rectangle(x1, y1, x2, y2, fill="blue", outline="")
 
                 # Autres stations
@@ -334,11 +332,41 @@ class Carte:
                         fill = self.couleurs.get(code, "white")
                         canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
 
-                # 2.e) Labels
+                    # --- DESSIN DES ALIMENTS SUR L'ASSEMBLAGE (NOUVEAU) ---
+                    if code == ASSEMBLAGE:
+                        stock = self.assemblage_stock.get((x, y), [])
+                        if stock:
+                            # Pour chaque aliment, on tente d'afficher son image
+                            # On les décale légèrement pour tous les voir
+                            for i, item in enumerate(stock):
+                                if hasattr(item, "_image_cache"):
+                                    # 1. Cache
+                                    photo = item._image_cache.get(item.etat)
+                                    # 2. Chargement si besoin
+                                    if photo is None:
+                                        path = item.get_texture_path()
+                                        if path:
+                                            try:
+                                                img = Image.open(path).convert("RGBA")
+                                                # Taille réduite pour rentrer dans l'assiette
+                                                sz = int(cw * 0.4)
+                                                img = img.resize((sz, sz), Image.NEAREST)
+                                                photo = ImageTk.PhotoImage(img)
+                                                item._image_cache[item.etat] = photo
+                                            except: pass
+                                    
+                                    # 3. Affichage
+                                    if photo:
+                                        # Petit offset "en cercle" ou diagonal
+                                        ox = (i % 2) * 10
+                                        oy = (i // 2) * 10
+                                        canvas.create_image(x1 + 5 + ox, y1 + 5 + oy, image=photo, anchor="nw")
+
+                # 2.e) Labels (On peut garder le texte par dessus ou l'enlever)
                 if code == ASSEMBLAGE:
                     stock = self.assemblage_stock.get((x, y), [])
                     if stock:
-                        # Affiche seulement les noms des ingrédients
+                        # Si tu préfères voir juste les images, commente ces lignes :
                         label = " +\n".join(getattr(a, "nom", str(a)) for a in stock)
                         canvas.create_text(
                             (x1 + x2) / 2, (y1 + y2) / 2,

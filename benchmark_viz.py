@@ -116,7 +116,6 @@ class HeadlessGame:
         }
 
 def run_viz_benchmark():
-    print("Démarrage du benchmark corrigé...")
     strategies = ["naive", "simple", "complexe"]
     durations = [90, 180] 
     iterations = 100 # Nombre réduit pour test rapide

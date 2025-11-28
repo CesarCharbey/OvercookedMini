@@ -93,11 +93,36 @@ class Player:
             y2 = (self.y + 1) * ch
             canvas.create_rectangle(x1, y1, x2, y2, outline="black", fill=self.couleur)
 
+        # --- DESSIN DE L'ALIMENT DANS LES MAINS ---
         if self.item:
-            # Plus de check est_perime
-            side = min(cw, ch) * 0.35
-            ax1 = x1 + cw - side * 1.2
-            ay1 = y1 + (ch - side) / 2
-            ax2 = ax1 + side
-            ay2 = ay1 + side
-            canvas.create_rectangle(ax1, ay1, ax2, ay2, outline="black", fill=self.item.couleur_ui())
+            # 1. Vérifier si l'image est déjà en cache dans l'objet Aliment
+            photo = self.item._image_cache.get(self.item.etat)
+            # 2. Si pas de cache, on essaie de charger
+            if photo is None:
+                path = self.item.get_texture_path()
+                if path:
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        # pour redimensionner l'item
+                        target_size = int(cw * 0.4)
+                        img = img.resize((target_size, target_size), Image.NEAREST)
+                        photo = ImageTk.PhotoImage(img)
+                        self.item._image_cache[self.item.etat] = photo
+                    except Exception as e:
+                        print(f"Erreur texture {self.item.nom}: {e}")
+                        photo = None
+
+            # 3. Dessiner (Image ou Fallback carré)
+            item_x = x1 + cw * 0.75
+            item_y = y1 + ch * 0.6
+
+            if photo:
+                canvas.create_image(item_x, item_y, image=photo, anchor="center")
+            else:
+                # Fallback : Carré coloré
+                side = min(cw, ch) * 0.35
+                ax1 = x1 + cw - side * 1.2
+                ay1 = y1 + (ch - side) / 2
+                ax2 = ax1 + side
+                ay2 = ay1 + side
+                canvas.create_rectangle(ax1, ay1, ax2, ay2, outline="black", fill=self.item.couleur_ui())

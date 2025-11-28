@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 import random
 
 # ---------------------------------------------------
@@ -11,6 +11,57 @@ class EtatAliment(Enum):
     SORTI_DU_BAC = auto()
     COUPE = auto()
     CUIT = auto()
+
+# ---------------------------------------------------
+# MAPPING TEXTURES (Nouveau)
+# ---------------------------------------------------
+# Associe (nom_aliment, etat) -> nom_fichier_png
+# Basé sur ta liste de fichiers fournie.
+TEXTURES_ALIMENTS = {
+    # Tomate
+    ("tomate", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Tomato_Fresh.png",
+    ("tomate", EtatAliment.COUPE):        "texture/FoodAssets/Tomato_Cut.png", 
+    ("tomate", EtatAliment.CUIT):         "texture/FoodAssets/Tomato_Cooked.png",
+
+    # Salade
+    ("salade", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Lettuce_Fresh.png",
+    ("salade", EtatAliment.COUPE):        "texture/FoodAssets/Lettuce_Cut.png",
+
+    # Aubergine
+    ("aubergine", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Eggplant_Fresh.png",
+    ("aubergine", EtatAliment.COUPE):        "texture/FoodAssets/Eggplant_Cut.png",
+    ("aubergine", EtatAliment.CUIT):         "texture/FoodAssets/Eggplant_Cooked.png",
+
+    # Courgette
+    ("courgette", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Zucchini_Fresh.png",
+    ("courgette", EtatAliment.COUPE):        "texture/FoodAssets/Zucchini_Cut.png",
+    ("courgette", EtatAliment.CUIT):         "texture/FoodAssets/Zucchini_Cooked.png",
+
+    # Poivron
+    ("poivron", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Pepper_Fresh.png",
+    ("poivron", EtatAliment.COUPE):        "texture/FoodAssets/Pepper_Cut.png",
+    ("poivron", EtatAliment.CUIT):         "texture/FoodAssets/Pepper_Cooked.png",
+
+    # Viande
+    ("viande", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Meat_Fresh.png",
+    ("viande", EtatAliment.COUPE):        "texture/FoodAssets/Meat_Cut.png",
+    ("viande", EtatAliment.CUIT):         "texture/FoodAssets/Meat_Cooked.png",
+
+    # Oeuf
+    # Note: Si tu as une texture pour l'oeuf frais, ajoute-la ici. Sinon fallback couleur.
+    # Je mappe SORTI_DU_BAC vers Egg_Cut si jamais tu n'as pas Egg_Fresh, sinon laisse vide ou mets le bon nom.
+    ("oeuf", EtatAliment.SORTI_DU_BAC):   "texture/FoodAssets/Egg_Fresh.png", # Hypothèse
+    ("oeuf", EtatAliment.COUPE):          "texture/FoodAssets/Egg_Cut.png",
+    ("oeuf", EtatAliment.CUIT):           "texture/FoodAssets/Egg_Cooked.png",
+
+    # Pain
+    ("pain", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Bread_Fresh.png",
+    ("pain", EtatAliment.COUPE):        "texture/FoodAssets/Bread_Cut.png",
+
+    # Pates
+    ("pate", EtatAliment.SORTI_DU_BAC): "texture/FoodAssets/Pasta_Fresh.png",
+    ("pate", EtatAliment.CUIT):         "texture/FoodAssets/Pasta_Cooked.png",
+}
 
 # ---------------------------------------------------
 # DURÉES
@@ -32,9 +83,16 @@ TEMPS_CUISSON = {
 class Aliment:
     nom: str
     etat: EtatAliment
+    
+    # Cache pour stocker l'image Tkinter chargée et éviter de recharger le fichier PNG à chaque frame
+    # field(init=False) signifie qu'on ne le passe pas dans le constructeur
+    _image_cache: Dict[EtatAliment, object] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def transformer(self, nouvel_etat: EtatAliment) -> None:
         self.etat = nouvel_etat
+
+    def get_texture_path(self) -> Optional[str]:
+        return TEXTURES_ALIMENTS.get((self.nom, self.etat))
 
     def couleur_ui(self) -> str:
         if self.etat == EtatAliment.SORTI_DU_BAC: return "#7fbf7f"
@@ -98,10 +156,8 @@ class Recette:
 # ---------------------------------------------------
 # INVENTAIRE
 # ---------------------------------------------------
-# On garde juste les noms pour savoir ce qui existe
 LEGUMES_NOMS = ["tomate", "salade", "aubergine", "courgette", "poivron"]
 
-# Liste simple de tuples (nom, dummy_value) pour compatibilité avec carte.assigner_bacs
 ALIMENTS_BAC = [
     ("viande", 0), ("pate", 0), ("oeuf", 0), ("pain", 0), ("legume", 0),
 ]
@@ -113,6 +169,7 @@ def prendre_au_bac(nom: str) -> Aliment:
 
 def prendre_legume(nom_legume: str) -> Aliment:
     return Aliment(nom=nom_legume, etat=EtatAliment.SORTI_DU_BAC)
+
 
 # ---------------------------------------------------
 # RECETTES
