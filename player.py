@@ -6,11 +6,12 @@ from recette import Aliment
 TILE_SIZE = 32
 
 class Player:
-    def __init__(self, x: int, y: int, couleur: str = "green", sprite_path: Optional[str] = None) -> None:
+    def __init__(self, x: int, y: int, couleur: str = "green", sprite_path: Optional[str] = None, label: str = "") -> None:
         self.x = int(x)
         self.y = int(y)
         self.couleur = couleur
         self.item: Optional[Aliment] = None
+        self.label = label # P1, P2, etc.
 
         self.anim_x = float(x)
         self.anim_y = float(y)
@@ -78,14 +79,15 @@ class Player:
                 return (px, py)
         return None
 
-    def dessiner(self, canvas: tk.Canvas, carte) -> None:
-        carte.dessiner(canvas)
+    def dessiner_personnage(self, canvas: tk.Canvas, carte) -> None:
+        # Note: on ne dessine plus la carte ici pour ne pas la redessiner 4 fois
         tile = min(carte.largeur_px // carte.cols, carte.hauteur_px // carte.rows)
         cw = ch = int(tile)
 
         x1 = self.anim_x * cw
         y1 = self.anim_y * ch
 
+        # Sprite
         if self.has_sprite:
             canvas.create_image(x1, y1, image=self.current_image, anchor="nw")
         else:
@@ -93,33 +95,30 @@ class Player:
             y2 = (self.y + 1) * ch
             canvas.create_rectangle(x1, y1, x2, y2, outline="black", fill=self.couleur)
 
-        # --- DESSIN DE L'ALIMENT DANS LES MAINS ---
+        # Indicateur P1/P2
+        if self.label:
+            canvas.create_text(x1 + cw/2, y1 - 5, text=self.label, fill="white", font=("Arial", 8, "bold"))
+
+        # Aliment dans les mains
         if self.item:
-            # 1. Vérifier si l'image est déjà en cache dans l'objet Aliment
             photo = self.item._image_cache.get(self.item.etat)
-            # 2. Si pas de cache, on essaie de charger
             if photo is None:
                 path = self.item.get_texture_path()
                 if path:
                     try:
                         img = Image.open(path).convert("RGBA")
-                        # pour redimensionner l'item
                         target_size = int(cw * 0.4)
                         img = img.resize((target_size, target_size), Image.NEAREST)
                         photo = ImageTk.PhotoImage(img)
                         self.item._image_cache[self.item.etat] = photo
-                    except Exception as e:
-                        print(f"Erreur texture {self.item.nom}: {e}")
-                        photo = None
-
-            # 3. Dessiner (Image ou Fallback carré)
+                    except: pass
+            
             item_x = x1 + cw * 0.75
             item_y = y1 + ch * 0.6
 
             if photo:
                 canvas.create_image(item_x, item_y, image=photo, anchor="center")
             else:
-                # Fallback : Carré coloré
                 side = min(cw, ch) * 0.35
                 ax1 = x1 + cw - side * 1.2
                 ay1 = y1 + (ch - side) / 2

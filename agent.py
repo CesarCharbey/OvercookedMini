@@ -9,9 +9,10 @@ from recette import (
 )
 from carte import Carte
 
-# -----------------------------------------------------------
-# HELPERS
-# -----------------------------------------------------------
+# ... (Les helpers recipes, bfs_path, etc. restent inchangés et sont masqués pour brièveté) ...
+# (Copier-coller les fonctions helpers du fichier précédent ici si vous recréez le fichier complet)
+# Pour la réponse, je remets les imports et la classe Agent modifiée.
+
 Coord = Tuple[int, int]
 
 def recettes_possibles_pour_items(items: List[Aliment], recettes: List[Recette]) -> List[Recette]:
@@ -91,14 +92,14 @@ def cases_adjacentes_a_stations(carte: Carte, stations: List[Coord]) -> List[Coo
                 adj.add((nx, ny))
     return list(adj)
 
-# -----------------------------------------------------------
-# CLASS AGENT
-# -----------------------------------------------------------
+
 class Agent:
-    def __init__(self, game_instance, player_instance, strategie: str):
+    # AJOUT du paramètre agent_id
+    def __init__(self, game_instance, player_instance, strategie: str, agent_id: int = 0):
         self.game = game_instance
         self.player = player_instance
         self.strategie = strategie
+        self.agent_id = agent_id # ID unique (0 ou 1) dans l'équipe
         
         self.current_path: List[Coord] = []
         self.move_cooldown = 0
@@ -154,12 +155,22 @@ class Agent:
             self._mark_progress()
 
     def choisir_recette(self):
+        # STRATEGIE COOPERATIVE (Répartition statique)
         recettes = self.game.recettes
         if not recettes: return None
-        if self.strategie == "naive": return recettes[0]
-        elif self.strategie == "simple": return min(recettes, key=lambda r: r.temps_estime)
-        elif self.strategie == "complexe": return max(recettes, key=lambda r: r.difficulte_reelle)
-        return recettes[0]
+        
+        # On trie d'abord les recettes selon la stratégie globale (naive, simple, complexe)
+        sorted_recettes = list(recettes)
+        if self.strategie == "simple":
+            sorted_recettes.sort(key=lambda r: r.temps_estime)
+        elif self.strategie == "complexe":
+            sorted_recettes.sort(key=lambda r: r.difficulte_reelle, reverse=True)
+        # si naive, on laisse l'ordre par défaut
+        
+        # Ensuite, chaque agent prend une recette différente selon son ID
+        # Agent 0 prend la 1ère, Agent 1 prend la 2ème (s'il y en a)
+        idx = self.agent_id % len(sorted_recettes)
+        return sorted_recettes[idx]
 
     def _ensure_bot_recette_valide(self):
         if not self.game.recettes:
@@ -199,8 +210,9 @@ class Agent:
             if now >= tfin: res.append(pos)
         return res
 
-    # --- PLANIFICATION ---
+    # --- PLANIFICATION (Inchangé) ---
     def _planifier(self):
+        # (Copie du code précédent, identique sauf pour l'appel de _aller_adjacent)
         if self.player.item and any(r.nom == self.player.item.nom for r in self.game.recettes):
             self._aller_adjacent("SERVICE"); return
 
@@ -324,7 +336,8 @@ class Agent:
                 from recette import TEMPS_COUPE
                 duree = TEMPS_COUPE.get(p.item.nom, 1.0)
                 pos_dec = p.est_adjacent_a(self.carte.pos_decoupes)
-                self.game.trigger_action_bloquante("DECOUPE", pos_dec, p.item, duree)
+                # MODIF: On passe 'self' (l'agent) pour identifier qui coupe
+                self.game.trigger_action_bloquante(self, "DECOUPE", pos_dec, p.item, duree)
                 return True
 
         # 3. CUISSON
@@ -379,7 +392,7 @@ class Agent:
                     if len(stock) == 0 and self.bot_recette:
                         stock.append(p.item); p.item = None
                         self._mark_progress(); return True
-                    p.item = None # Poubelle si incompatible
+                    p.item = None 
                     self._mark_progress(); return True
                 
                 stock.append(p.item); p.item = None
