@@ -133,7 +133,8 @@ class Agent:
         self.last_pos: Coord = (self.player.x, self.player.y)
         self.last_progress_time = self.game.get_time()
         self.pause_until = 0.0
-        self.block_timeout_s = 4.0
+        self.retreat_threshold_s = 2.0  # Au bout de 2s, on tente de reculer
+        self.block_timeout_s = 5.0      # Au bout de 5s, on reset tout (hard reset)
 
     @property
     def carte(self):
@@ -183,17 +184,81 @@ class Agent:
         self.last_progress_time = self.game.get_time()
         self.last_pos = (self.player.x, self.player.y)
 
+    def _tenter_degagement(self):
+        """Essaie de trouver une case adjacente libre pour laisser passer le partenaire."""
+        px, py = self.player.x, self.player.y
+        partner_pos = (self.partner.player.x, self.partner.player.y) if self.partner else (-999, -999)
+        
+        candidates = []
+        # On regarde les 4 voisins
+        for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
+            nx, ny = px + dx, py + dy
+            
+            # Vérifications de base (limites carte)
+            if not (0 <= nx < self.carte.cols and 0 <= ny < self.carte.rows):
+                continue
+            
+            # On ne va pas dans un mur ni une station
+            if self.carte.est_bloquant(nx, ny):
+                continue
+                
+            # CRITIQUE : On ne va pas SUR le partenaire (puisqu'on veut lui laisser la place)
+            if (nx, ny) == partner_pos:
+                continue
+            
+            # Si on a un chemin actuel, on essaie d'éviter la prochaine case prévue (pour ne pas insister)
+            if self.current_path and (nx, ny) == self.current_path[0]:
+                continue
+                
+            candidates.append((nx, ny))
+        
+        if candidates:
+            # On choisit une case de fuite au hasard
+            retreat_target = random.choice(candidates)
+            
+            # On force le mouvement : chemin d'un seul pas
+            self.current_path = [retreat_target]
+            
+            # On met une pause après le mouvement pour laisser le temps à l'autre de passer
+            self.pause_until = self.game.get_time() + 1.5 
+            
+            # On considère qu'on a bougé pour reset le timer de blocage
+            self._mark_progress()
+            # print(f"Agent {self.agent_id} recule vers {retreat_target} pour débloquer !")
+
     def _check_blockage(self, now: float):
         pos_now = (self.player.x, self.player.y)
-        stagnant = (pos_now == self.last_pos)
-        # Si bloqué trop longtemps, on lâche tout (reset soft)
-        if stagnant and (now - self.last_progress_time) > self.block_timeout_s:
+        
+        # Est-ce qu'on a bougé depuis la dernière fois ?
+        if pos_now != self.last_pos:
+            self.last_pos = pos_now
+            self.last_progress_time = now
+            return
+
+        # Temps écoulé sans bouger
+        stagnation_time = now - self.last_progress_time
+        
+        # ÉTAPE 1 : Tentative de dégagement (Marche arrière)
+        if stagnation_time > self.retreat_threshold_s and stagnation_time < self.block_timeout_s:
+            # On ne le fait qu'une fois toutes les X secondes pour ne pas spammer
+            # Astuce : on utilise modulo ou un flag, mais ici le mark_progress dans _tenter_degagement fera le reset
+            self._tenter_degagement()
+            return
+
+        # ÉTAPE 2 : Hard Reset (Si la marche arrière n'a pas suffi ou impossible)
+        if stagnation_time > self.block_timeout_s:
             # On lâche l'item s'il ne sert à rien, ou on change de recette
             self.current_path = []
             self.target_station = None
-            # Petit temps de pause pour laisser passer l'autre si collision frontale
-            self.pause_until = now + 0.5 
+            
+            # Si on a un item en main, on le pose par terre (optionnel) ou on le garde
+            # Reset complet de la logique
+            self.bot_recette = None 
+            
+            # Petit temps de pause
+            self.pause_until = now + 1.0 
             self._mark_progress()
+            # print(f"Agent {self.agent_id} HARD RESET (Bloqué trop longtemps)")
 
     def choisir_recette(self):
         recettes = self.game.recettes
