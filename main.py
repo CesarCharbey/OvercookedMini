@@ -1,7 +1,7 @@
 import tkinter as tk
 from typing import List, Tuple, Dict
 import time
-
+import pygame 
 from end_screen import EndScreen
 from carte import Carte
 from player import Player
@@ -10,28 +10,9 @@ from recette import (
     ALIMENTS_BAC, nouvelle_recette
 )
 from agent import Agent
+from map_generator import generate_map
 
-grille_J1= [
-    [6,6,6,6,6,6,6,6,6,6],
-    [6,0,0,3,2,2,0,0,8,6],
-    [6,1,0,0,0,0,0,0,8,6],
-    [6,1,0,0,0,0,0,0,4,6],
-    [6,1,0,0,0,0,0,0,4,6],
-    [6,1,0,0,0,0,0,0,4,6],
-    [6,0,0,7,7,3,0,0,4,6],
-    [6,6,6,6,6,6,6,6,6,6],
-]
-
-grille_J2= [
-    [6,6,6,6,6,6,6,6,6,6],
-    [6,0,0,3,2,2,0,0,8,6],
-    [6,1,0,0,0,0,0,0,8,6],
-    [6,1,0,0,0,0,0,0,4,6],
-    [6,1,0,0,0,0,0,0,4,6],
-    [6,1,0,0,0,0,0,0,4,6],
-    [6,0,0,7,7,3,0,0,4,6],
-    [6,6,6,6,6,6,6,6,6,6],
-]
+grille, spawn1, spawn2 = generate_map()
 
 W, H = 600, 600
 GAME_DURATION_S = 90
@@ -45,6 +26,8 @@ class Game:
 
         self.carte = Carte(grille_data, largeur=W, hauteur=H)
         self.carte.assigner_bacs(ALIMENTS_BAC)
+            
+
         self.score = 0
         self.start_time = time.time()
         self.deadline = self.start_time + GAME_DURATION_S
@@ -60,8 +43,8 @@ class Game:
         # On crée 2 joueurs à des positions différentes pour ne pas qu'ils se bloquent au spawn
         # P1 à (2,2), P2 à (5,2)
         self.players = [
-            Player(2, 2, sprite_path="texture/Player.png", label="P1"),
-            Player(5, 2, sprite_path="texture/Player.png", label="P2")
+            Player(spawn1[0], spawn1[1], sprite_path="texture/Player.png", label="P1"),
+            Player(spawn2[0], spawn2[1], sprite_path="texture/Player.png", label="P2")
         ]
         
         # On crée 2 agents, chacun assigné à un joueur et avec un ID différent
@@ -237,19 +220,19 @@ def main(strategie_J1="naive", strategie_J2="naive"):
     root = tk.Tk()
     root.title("OverCooked Mini 2vs2 (Tag Team) 🧑‍🍳🧑‍🍳")
     root.resizable(False, False)
-
+    #pygame.mixer_music.load("music/guitare_funny.mp3")
     frame = tk.Frame(root)
     frame.pack()
 
     # Équipe 1
     f1 = tk.Frame(frame); f1.pack(side="left")
     tk.Label(f1, text="Équipe 1 (2 Joueurs)", font=("Arial", 14)).pack()
-    g1 = Game(f1, grille_J1, strategie=strategie_J1)
+    g1 = Game(f1, grille, strategie=strategie_J1)
 
     # Équipe 2
     f2 = tk.Frame(frame); f2.pack(side="left")
     tk.Label(f2, text="Équipe 2 (2 Joueurs)", font=("Arial", 14)).pack()
-    g2 = Game(f2, grille_J2, strategie=strategie_J2)
+    g2 = Game(f2, grille, strategie=strategie_J2)
 
     def check_end():
         now = time.time()

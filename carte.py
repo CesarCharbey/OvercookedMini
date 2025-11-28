@@ -140,65 +140,86 @@ class Carte:
         return DIR_S
 
     def _charger_textures(self, largeur_px, hauteur_px):
-        """Charge les textures de toutes les tuiles + service 2x1."""
+        """Charge les textures de toutes les tuiles + service 1x1 et 2x1."""
         # tuile carrée
         taille = min(largeur_px // self.cols, hauteur_px // self.rows)
         cw = ch = int(taille)
 
         self.textures = {}
-        self.service_tex_h = None
-        self.service_tex_v = None
+        self.service_tex_h = None   # SERVICE 2x1 horizontal
+        self.service_tex_v = None   # SERVICE 1x2 vertical
 
+        from PIL import Image, ImageTk
+
+        # 1. Textures de base (sol, murs, stations...)
         for code, path in self.texture_files.items():
             try:
-                import os
-                from PIL import Image, ImageTk
                 img_raw = Image.open(path).convert("RGBA")
             except Exception as e:
                 print(f"Erreur chargement texture {path} :", e)
                 continue
 
-            # SERVICE 2 cases
+            # ----- Cas spécial : SERVICE -----
             if code == SERVICE:
-                # 2x1 horizontal (vers la droite)
+                # sprite de base 1x1
+                base = img_raw.resize((cw, ch), Image.LANCZOS)
+
+                img_s = base
+                img_n = base.rotate(180, expand=True).resize((cw, ch), Image.LANCZOS)
+                img_e = base.rotate(-90, expand=True).resize((cw, ch), Image.LANCZOS)
+                img_w = base.rotate(90,  expand=True).resize((cw, ch), Image.LANCZOS)
+
+                self.textures[(SERVICE, "S")] = ImageTk.PhotoImage(img_s)
+                self.textures[(SERVICE, "N")] = ImageTk.PhotoImage(img_n)
+                self.textures[(SERVICE, "E")] = ImageTk.PhotoImage(img_e)
+                self.textures[(SERVICE, "W")] = ImageTk.PhotoImage(img_w)
+
+                # 2x1 horizontal
                 img_h = img_raw.resize((cw * 2, ch), Image.LANCZOS)
-                # 1x2 vertical (vers le bas) : on tourne le sprite
+                # 1x2 vertical
                 img_v = img_raw.rotate(90, expand=True).resize((cw, ch * 2), Image.LANCZOS)
 
                 self.service_tex_h = ImageTk.PhotoImage(img_h)
                 self.service_tex_v = ImageTk.PhotoImage(img_v)
                 continue
 
+            # ----- Cas spécial : SOL (une seule texture) -----
             base = img_raw.resize((cw, ch), Image.LANCZOS)
-
             if code == SOL:
                 tex = ImageTk.PhotoImage(base)
-                self.textures[(code, "N")] = tex
-                self.textures[(code, "S")] = tex
-                self.textures[(code, "E")] = tex
-                self.textures[(code, "W")] = tex
+                self.textures[(SOL, "S")] = tex
+                self.textures[(SOL, "N")] = tex
+                self.textures[(SOL, "E")] = tex
+                self.textures[(SOL, "W")] = tex
                 continue
 
+            # ----- Tous les autres blocs : 4 orientations -----
             img_s = base
             img_n = base.rotate(180, expand=True).resize((cw, ch), Image.LANCZOS)
-            img_e = base.rotate(-90, expand=True).resize((cw, ch), Image.LANCZOS)
-            img_w = base.rotate(90,  expand=True).resize((cw, ch), Image.LANCZOS)
+            img_e = base.rotate(-90,  expand=True).resize((cw, ch), Image.LANCZOS)
+            img_w = base.rotate(90,   expand=True).resize((cw, ch), Image.LANCZOS)
 
-            from PIL import ImageTk
             self.textures[(code, "S")] = ImageTk.PhotoImage(img_s)
             self.textures[(code, "N")] = ImageTk.PhotoImage(img_n)
             self.textures[(code, "E")] = ImageTk.PhotoImage(img_e)
             self.textures[(code, "W")] = ImageTk.PhotoImage(img_w)
-        
-        # 2. Chargement des textures BACS dynamiques
+
+        # 2. Chargement des textures BACS dynamiques (crates)
+        self.crate_textures = {}
         for aliment_nom, path in self.crate_files_map.items():
-            img_raw = Image.open(path).convert("RGBA")
+            try:
+                img_raw = Image.open(path).convert("RGBA")
+            except Exception as e:
+                print(f"Erreur chargement crate {path} :", e)
+                continue
+
             base = img_raw.resize((cw, ch), Image.LANCZOS)
             # On génère les 4 orientations pour chaque type de crate
             self.crate_textures[(aliment_nom, "S")] = ImageTk.PhotoImage(base)
             self.crate_textures[(aliment_nom, "N")] = ImageTk.PhotoImage(base.rotate(180))
             self.crate_textures[(aliment_nom, "E")] = ImageTk.PhotoImage(base.rotate(-90))
             self.crate_textures[(aliment_nom, "W")] = ImageTk.PhotoImage(base.rotate(90))
+
 
     @property
     def rows(self) -> int: return len(self.grille)
@@ -283,23 +304,43 @@ class Carte:
                     canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
 
                 # Service
+                                # Service : gestion 1x2 (vertical) et 2x1 (horizontal)
                 elif code == SERVICE:
-                    count_above = 0
-                    yy = y - 1
-                    while yy >= 0 and self.grille[yy][x] == SERVICE:
-                        count_above += 1
-                        yy -= 1
+                    # 1) Si on n'est pas la "première" case du groupe, on ne dessine rien
+                    #    (pour éviter de dessiner 2 fois le même sprite).
+                    if x > 0 and self.grille[y][x - 1] == SERVICE:
+                        continue  # déjà dessiné depuis la case de gauche
+                    if y > 0 and self.grille[y - 1][x] == SERVICE:
+                        continue  # déjà dessiné depuis la case du haut
 
-                    if count_above % 2 == 1:
-                        pass
+                    # 2) Groupe horizontal ?
+                    if x + 1 < self.cols and self.grille[y][x + 1] == SERVICE:
+                        if self.service_tex_h:
+                            canvas.create_image(
+                                x1, y1,
+                                image=self.service_tex_h,
+                                anchor="nw"
+                            )
+
+                    # 3) Groupe vertical ?
+                    elif y + 1 < self.rows and self.grille[y + 1][x] == SERVICE:
+                        if self.service_tex_v:
+                            canvas.create_image(
+                                x1, y1,
+                                image=self.service_tex_v,
+                                anchor="nw"
+                            )
+
+                    # 4) Service tout seul (au cas où)
                     else:
-                        if y + 1 < self.rows and self.grille[y + 1][x] == SERVICE:
-                            if self.service_tex_v:
-                                canvas.create_image(
-                                    x1, y1,
-                                    image=self.service_tex_v,
-                                    anchor="nw"
-                                )
+                        orient = self.orientations.get((x, y), DIR_S)
+                        tex = self.textures.get((SERVICE, orient))
+                        if tex is not None:
+                            canvas.create_image(x1, y1, image=tex, anchor="nw")
+                        else:
+                            fill = self.couleurs.get(SERVICE, "gray")
+                            canvas.create_rectangle(x1, y1, x2, y2, outline="", fill=fill)
+
 
                 # BACS
                 elif code == BAC:
