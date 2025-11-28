@@ -47,7 +47,8 @@ class Game:
         self.carte = Carte(grille_data, largeur=W, hauteur=H)
         self.carte.assigner_bacs(ALIMENTS_BAC)
         self.score = 0
-        self.deadline = time.time() + GAME_DURATION_S
+        self.start_time = time.time()
+        self.deadline = self.start_time + GAME_DURATION_S
         self.recettes: List[Recette] = [nouvelle_recette() for _ in range(3)]
         self.recettes_livrees = []
         
@@ -62,6 +63,10 @@ class Game:
         self.last_tick = time.time()
         self._refresh()
         self.root.after(TICK_MS, self._tick)
+
+    def get_time(self) -> float:
+        """Retourne le temps actuel du jeu (temps réel)."""
+        return time.time()
 
     def trigger_action_bloquante(self, type_action, pos, aliment, duree):
         self.action_en_cours = (type_action, pos, aliment)
@@ -204,7 +209,8 @@ def main(strategie_J1="naive", strategie_J2="naive"):
     g2 = Game(f2, grille_J2, strategie=strategie_J2)
 
     def check_end():
-        if time.time() >= g1.deadline:
+        now = time.time()
+        if now >= g1.deadline:
             EndScreen(root, {"score": g1.score, "recettes": g1.recettes_livrees},
                             {"score": g2.score, "recettes": g2.recettes_livrees})
         else:

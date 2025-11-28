@@ -109,7 +109,7 @@ class Agent:
         self.current_assembly: Optional[Coord] = None
 
         self.last_pos: Coord = (self.player.x, self.player.y)
-        self.last_progress_time = time.time()
+        self.last_progress_time = self.game.get_time()
         self.pause_until = 0.0
         self.block_timeout_s = 3.0
 
@@ -118,7 +118,7 @@ class Agent:
         return self.game.carte
 
     def tick(self):
-        now = time.time()
+        now = self.game.get_time()
         if now < self.pause_until: return
 
         self._check_blockage(now)
@@ -137,7 +137,7 @@ class Agent:
                         self._mark_progress()
 
     def _mark_progress(self):
-        self.last_progress_time = time.time()
+        self.last_progress_time = self.game.get_time()
         self.last_pos = (self.player.x, self.player.y)
 
     def _check_blockage(self, now: float):
@@ -193,7 +193,7 @@ class Agent:
         return None
 
     def _stations_cuisson_pretes(self) -> List[Tuple[int, int]]:
-        now = time.time()
+        now = self.game.get_time()
         res = []
         for pos, (alim, t0, tfin) in self.game.cuissons.items():
             if now >= tfin: res.append(pos)
@@ -336,7 +336,7 @@ class Agent:
             slot = self.game.cuissons.get(pos_station)
             if slot:
                 alim, t0, tfin = slot
-                if time.time() >= tfin:
+                if self.game.get_time() >= tfin:
                     p.item = alim
                     del self.game.cuissons[pos_station]
                     self._mark_progress(); return True
