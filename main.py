@@ -1,7 +1,7 @@
 import tkinter as tk
 from typing import List, Tuple, Dict
 import time
-import pygame 
+
 from end_screen import EndScreen
 from carte import Carte
 from player import Player
@@ -12,49 +12,62 @@ from recette import (
 from agent import Agent
 from map_generator import generate_map
 
-grille, spawn1, spawn2 = generate_map()
-
+# Constantes globales
 W, H = 600, 600
 GAME_DURATION_S = 90
 TICK_MS = 100
 
 class Game:
-    def __init__(self, root: tk.Tk, grille_data=None, strategie="naive") -> None:
+    def __init__(self, root: tk.Tk, grille_data: List[List[int]], spawn_positions: List[Tuple[int, int]], 
+                 strategie_1="naive", strategie_2="naive", nb_agents=2) -> None:
         self.root = root
         self.canvas = tk.Canvas(root, width=W, height=H)
         self.canvas.pack()
 
+        # Initialisation de la carte avec la grille générée
         self.carte = Carte(grille_data, largeur=W, hauteur=H)
         self.carte.assigner_bacs(ALIMENTS_BAC)
-            
-
+        
         self.score = 0
         self.start_time = time.time()
         self.deadline = self.start_time + GAME_DURATION_S
+        
         self.recettes: List[Recette] = [nouvelle_recette() for _ in range(3)]
         self.recettes_livrees = []
         
         self.cuissons: dict[Tuple[int, int], Tuple[Aliment, float, float]] = {}
         
-        # --- GESTION MULTI-JOUEURS ---
-        # Au lieu d'un seul tuple, on stocke les actions par agent : { agent_instance: (type, pos, alim, deb, fin) }
+        # Stockage des actions par agent
         self.actions_en_cours: Dict[Agent, Tuple[str, Tuple[int,int], Aliment, float, float]] = {}
 
-        # On crée 2 joueurs à des positions différentes pour ne pas qu'ils se bloquent au spawn
-        # P1 à (2,2), P2 à (5,2)
-        self.players = [
-            Player(spawn1[0], spawn1[1], sprite_path="texture/Player.png", label="P1"),
-            Player(spawn2[0], spawn2[1], sprite_path="texture/Player.png", label="P2")
-        ]
+        # --- CRÉATION DYNAMIQUE DES JOUEURS/AGENTS ---
+        self.players = []
+        self.agents = []
         
-        # On crée 2 agents, chacun assigné à un joueur et avec un ID différent
-        self.agents = [
-            Agent(self, self.players[0], strategie, agent_id=0),
-            Agent(self, self.players[1], strategie, agent_id=1)
-        ]
-        #on lie les agents entre eux
-        self.agents[0].partner = self.agents[1]
-        self.agents[1].partner = self.agents[0]
+        # On s'assure de ne pas essayer de créer plus d'agents que de points de spawn disponibles
+        # (Le générateur de map en fournit généralement 2)
+        limit_agents = min(nb_agents, len(spawn_positions))
+
+        for i in range(limit_agents):
+            sx, sy = spawn_positions[i]
+            
+            # Création joueur
+            p = Player(sx, sy, sprite_path="texture/Player.png", label=f"P{i+1}")
+            self.players.append(p)
+            
+            # Choix de la stratégie (J1 prend strat1, J2 prend strat2)
+            strat = strategie_1 if i == 0 else strategie_2
+            
+            # Création agent
+            a = Agent(self, p, strat, agent_id=i)
+            self.agents.append(a)
+
+        # Liaison des partenaires
+        if limit_agents == 2:
+            self.agents[0].partner = self.agents[1]
+            self.agents[1].partner = self.agents[0]
+        elif limit_agents == 1:
+            self.agents[0].partner = None
 
         self.last_tick = time.time()
         self._refresh()
@@ -66,7 +79,6 @@ class Game:
     def trigger_action_bloquante(self, agent: Agent, type_action, pos, aliment, duree):
         """L'agent signale qu'il commence une action (ex: découpe)."""
         now = self.get_time()
-        # On stocke l'action liée spécifiquement à CET agent
         self.actions_en_cours[agent] = (type_action, pos, aliment, now, now + duree)
 
     def start_cooking(self, pos, aliment, duree):
@@ -76,46 +88,51 @@ class Game:
     def deliver_recipe(self, index, recette):
         self.score += recette.difficulte_reelle
         self.recettes_livrees.append((recette.nom, recette.complexite))
-        # On remplace la recette livrée par une nouvelle
         self.recettes.pop(index)
         self.recettes.append(nouvelle_recette())
 
     def _tick(self):
-        now = self.get_time()
-        dt = now - self.last_tick
-        self.last_tick = now
+        try:
+            now = self.get_time()
+            dt = now - self.last_tick
+            self.last_tick = now
 
-        if now >= self.deadline: return
+            if now >= self.deadline: return
 
-        self._update_physics()
+            self._update_physics()
 
-        # 1. GESTION DES ACTIONS BLOQUANTES (PAR AGENT)
-        agents_occupes = set()
-        
-        # On itère sur une copie des clés car on peut supprimer des éléments pendant la boucle
-        for agent in list(self.actions_en_cours.keys()):
-            type_action, _, aliment, _, t_fin = self.actions_en_cours[agent]
+            # 1. GESTION DES ACTIONS BLOQUANTES
+            agents_occupes = set()
             
-            if now >= t_fin:
-                # Action terminée
-                if type_action == "DECOUPE":
-                    aliment.transformer(EtatAliment.COUPE)
-                del self.actions_en_cours[agent]
-                agent._mark_progress() # Réveille l'agent
-            else:
-                # Action en cours -> l'agent est occupé
-                agents_occupes.add(agent)
+            for agent in list(self.actions_en_cours.keys()):
+                type_action, _, aliment, _, t_fin = self.actions_en_cours[agent]
+                
+                if now >= t_fin:
+                    # Action terminée
+                    if type_action == "DECOUPE":
+                        aliment.transformer(EtatAliment.COUPE)
+                    del self.actions_en_cours[agent]
+                    agent._mark_progress()
+                else:
+                    # Action en cours
+                    agents_occupes.add(agent)
 
-        # 2. UPDATE DES AGENTS (Ceux qui ne travaillent pas)
-        for agent in self.agents:
-            if agent not in agents_occupes:
-                agent.tick()
+            # 2. UPDATE DES AGENTS LIBRES
+            for agent in self.agents:
+                if agent not in agents_occupes:
+                    agent.tick()
 
-        # 3. UPDATE DES JOUEURS (Animation)
-        for p in self.players:
-            p.update(dt)
+            # 3. UPDATE DES JOUEURS (Animation)
+            for p in self.players:
+                p.update(dt)
 
-        self._refresh()
+            self._refresh()
+
+        except Exception as e:
+            print(f"ERREUR DANS TICK: {e}")
+            import traceback
+            traceback.print_exc()
+
         self.root.after(TICK_MS, self._tick)
 
     def _update_physics(self):
@@ -125,10 +142,8 @@ class Game:
                 alim.transformer(EtatAliment.CUIT)
 
     def _refresh(self):
-        # On redessine tout
-        self.carte.dessiner(self.canvas) # Dessine le sol et les stations
+        self.carte.dessiner(self.canvas) 
         
-        # Dessine TOUS les joueurs
         for p in self.players:
             p.dessiner_personnage(self.canvas, self.carte)
             
@@ -146,7 +161,6 @@ class Game:
             cw = ch = int(tile)
             x1, y1 = sx * cw, sy * ch
             
-            # Barre de progression
             bx1, bx2 = x1 + 4, x1 + cw - 4
             by1, by2 = y1 + 4, y1 + 10
             
@@ -155,17 +169,14 @@ class Game:
             fx2 = bx1 + ratio * (bx2 - bx1)
             self.canvas.create_rectangle(bx1, by1, fx2, by2, fill=color, outline="")
 
-        # Barres pour les actions de découpe de CHAQUE agent
         for agent, (type_act, pos, _, t_deb, t_fin) in self.actions_en_cours.items():
             if type_act == "DECOUPE" and pos:
                 draw_bar(pos[0], pos[1], t_deb, t_fin, "DECOUPE")
         
-        # Barres pour les cuissons (fours/poêles)
         for (sx, sy), (_, t0, tfin) in self.cuissons.items():
             draw_bar(sx, sy, t0, tfin, "CUISSON")
 
     def _dessiner_debug_path(self):
-        # Dessine le chemin de chaque agent avec une couleur différente
         colors = ["cyan", "magenta"]
         tile = min(self.carte.largeur_px // self.carte.cols, self.carte.hauteur_px // self.carte.rows)
         cw = ch = int(tile)
@@ -174,7 +185,6 @@ class Game:
             if not agent.current_path: continue
             nx, ny = agent.current_path[0]
             col = colors[i % len(colors)]
-            # Petit décalage pour voir si les chemins se superposent
             margin = 2 + (i * 2)
             self.canvas.create_rectangle(
                 nx*cw+margin, ny*ch+margin, 
@@ -205,7 +215,6 @@ class Game:
             self.canvas.create_text(8, y, text=f"{i+1}. {r.nom} [{need}]", fill="white", anchor="nw", font=("Arial", 10), width=SPLIT_X-16)
             y += 34
 
-        # Debug IA
         dx = SPLIT_X + 8
         dy = panel_y0 + 4
         for i, agent in enumerate(self.agents):
@@ -216,23 +225,44 @@ class Game:
             dy += 18
 
 
-def main(strategie_J1="naive", strategie_J2="naive"):
+def main(nb_agents_1=2, strat_1a="naive", strat_1b="naive",
+         nb_agents_2=2, strat_2a="naive", strat_2b="naive"):
+    
     root = tk.Tk()
-    root.title("OverCooked Mini 2vs2 (Tag Team) 🧑‍🍳🧑‍🍳")
+    root.title(f"Overcooked Mini — {nb_agents_1} vs {nb_agents_2}")
     root.resizable(False, False)
-    #pygame.mixer_music.load("music/guitare_funny.mp3")
+
+    # 1. GÉNÉRATION DE LA MAP (Identique pour les deux équipes pour l'équité)
+    # On génère une seule fois la grille et les spawns
+    grille_generee, spawn1, spawn2 = generate_map()
+    
+    # On met les spawns dans une liste pour les passer à la classe Game
+    spawns = [spawn1, spawn2]
+
+    # --- INTERFACE TKINTER ---
     frame = tk.Frame(root)
     frame.pack()
 
-    # Équipe 1
-    f1 = tk.Frame(frame); f1.pack(side="left")
-    tk.Label(f1, text="Équipe 1 (2 Joueurs)", font=("Arial", 14)).pack()
-    g1 = Game(f1, grille, strategie=strategie_J1)
+    # --- ÉQUIPE 1 ---
+    f1 = tk.Frame(frame)
+    f1.pack(side="left", padx=5)
+    
+    tk.Label(f1, text=f"Équipe 1 ({nb_agents_1} IA)", font=("Arial", 14, "bold"), fg="#3498db").pack()
+    
+    # On passe la grille générée et les spawns
+    g1 = Game(f1, grille_data=grille_generee, spawn_positions=spawns,
+              strategie_1=strat_1a, strategie_2=strat_1b, nb_agents=nb_agents_1)
 
-    # Équipe 2
-    f2 = tk.Frame(frame); f2.pack(side="left")
-    tk.Label(f2, text="Équipe 2 (2 Joueurs)", font=("Arial", 14)).pack()
-    g2 = Game(f2, grille, strategie=strategie_J2)
+
+    # --- ÉQUIPE 2 ---
+    f2 = tk.Frame(frame)
+    f2.pack(side="left", padx=5)
+    
+    tk.Label(f2, text=f"Équipe 2 ({nb_agents_2} IA)", font=("Arial", 14, "bold"), fg="#e74c3c").pack()
+    
+    # On passe la MÊME grille et les MÊMES spawns (compétition sur terrain égal)
+    g2 = Game(f2, grille_data=grille_generee, spawn_positions=spawns,
+              strategie_1=strat_2a, strategie_2=strat_2b, nb_agents=nb_agents_2)
 
     def check_end():
         now = time.time()
@@ -241,8 +271,10 @@ def main(strategie_J1="naive", strategie_J2="naive"):
                             {"score": g2.score, "recettes": g2.recettes_livrees})
         else:
             root.after(200, check_end)
+            
     check_end()
     root.mainloop()
 
 if __name__ == "__main__":
+    # Valeurs par défaut pour test direct
     main()
