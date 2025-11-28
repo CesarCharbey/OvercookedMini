@@ -219,13 +219,13 @@ class Agent:
         for r in sorted_recettes:
             # On vérifie l'identité de l'objet (is) ou le nom
             if r is not recette_partenaire:
-                print(f"Agent {self.agent_id} choisit : {r.nom} (Évite {recette_partenaire.nom if recette_partenaire else 'rien'})")
+                #print(f"Agent {self.agent_id} choisit : {r.nom} (Évite {recette_partenaire.nom if recette_partenaire else 'rien'})")
                 return r
         
         # 4. Fallback (Cas rare)
         # Si on arrive ici, c'est qu'il n'y a qu'une seule recette disponible 
         # et que le partenaire est déjà dessus. On aide le partenaire !
-        print(f"Agent {self.agent_id} aide son partenaire sur : {sorted_recettes[0].nom}")
+        #print(f"Agent {self.agent_id} aide son partenaire sur : {sorted_recettes[0].nom}")
         return sorted_recettes[0]
 
     def _ensure_bot_recette_valide(self):
@@ -449,6 +449,7 @@ class Agent:
 
     # --- ACTIONS ---
     def try_action(self) -> bool:
+        self._ensure_bot_recette_valide() # être sûr que la recette est bonne avant de faire l'action
         p = self.player
         
         # 1. BAC
@@ -523,32 +524,34 @@ class Agent:
                     p.item = None
                     self._mark_progress(); return True
 
-        # 4. ASSEMBLAGE (CORRECTION CRITIQUE)
+        # 4. ASSEMBLAGE (SECTION CORRIGÉE)
         adj_ass = p.est_adjacent_a(self.carte.pos_assemblages)
         if adj_ass:
             stock = self.carte.assemblage_stock.setdefault(adj_ass, [])
             
-            # --- NETTOYAGE INTELLIGENT ---
-            # Au lieu de vider si ça ne matche pas MA recette, on vide seulement si ça ne matche AUCUNE recette active
+            # --- CORRECTION 2 : NETTOYAGE FORCÉ ---
+            # Si le stock actuel sur la table ne correspond à AUCUNE recette active,
+            # il faut le jeter AVANT d'essayer de poser quoi que ce soit.
             if stock:
                 # Est-ce un plat final fini ?
                 est_plat_final = (len(stock) == 1 and any(r.nom == stock[0].nom for r in self.game.recettes) and stock[0].etat == EtatAliment.CUIT)
                 
                 if not est_plat_final:
-                    # Est-ce que le contenu actuel peut potentiellement mener à UNE des recettes du jeu ?
                     compatible_any = False
                     for r in self.game.recettes:
                         if items_completent_recette(stock, r): 
-                            compatible_any = True # C'est prêt pour quelqu'un !
+                            compatible_any = True 
                             break
-                        # Sinon est-ce que c'est un début valide ?
                         flags = matched_flags_for_recipe(stock, r)
-                        if sum(flags) == len(stock): # Tous les items présents sont utiles pour R
+                        # Si tous les items présents sont utiles pour R
+                        if sum(flags) == len(stock): 
                             compatible_any = True
                             break
                     
                     if not compatible_any:
-                        stock.clear() # C'est une poubelle, on vide
+                        stock.clear() # C'est une poubelle (recette annulée), on vide
+                        self._mark_progress()
+                        # On ne retourne pas True ici, car on veut peut-être poser notre item juste après
 
             # --- DÉPÔT / RÉCUPÉRATION ---
             
@@ -558,7 +561,7 @@ class Agent:
                 stock.append(Aliment(nom=self.bot_recette.nom, etat=EtatAliment.CUIT))
                 self._mark_progress(); return True
             
-            # Cas B : C'est prêt pour n'importe qui ? (Coopération)
+            # Cas B : C'est prêt pour n'importe qui ?
             if p.item is None and stock:
                 for r in self.game.recettes:
                     if items_completent_recette(stock, r):
@@ -568,13 +571,11 @@ class Agent:
 
             # Cas C : Je pose mon ingrédient
             if p.item:
-                # Je pose si ça aide une recette
                 tentative = stock + [p.item]
                 recettes_possibles = recettes_possibles_pour_items(tentative, self.game.recettes)
 
                 if recettes_possibles:
                     stock.append(p.item); p.item = None
-                    # Vérif immédiate si ça a fini une recette
                     for r in recettes_possibles:
                         if items_completent_recette(stock, r):
                             stock.clear()
@@ -582,13 +583,14 @@ class Agent:
                             break
                     self._mark_progress(); return True
                 
-                # Si ça n'aide rien mais que la table est vide, je pose (stockage tampon)
-                if not stock and self.bot_recette:
-                     # On vérifie quand même que c'est un item utile globalement
+                # --- CORRECTION 3 : STOCKAGE TAMPON ROBUSTE ---
+                # Si la table est vide, je pose mon item (même si ma recette vient de changer)
+                # Cela évite de garder un item inutile en main.
+                if not stock:
                      stock.append(p.item); p.item = None
                      self._mark_progress(); return True
                      
-                return False # Je garde mon item, la table ne veut pas de moi
+                return False 
 
             # Cas D : Je récupère un plat fini
             if p.item is None and stock:
