@@ -151,20 +151,20 @@ class Agent:
             if not acted:
                 self._planifier()
         else:
-            # Si on a un chemin, on avance
             self.move_cooldown += 1
             if self.move_cooldown >= self.move_every_ticks:
-                # Vérification collision dynamique avant chaque pas
                 if self._chemin_est_libre_prochaine_etape():
                     self._suivre_chemin()
                     self.move_cooldown = 0
                 else:
-                    # Si le chemin est bloqué par le partenaire, on attend ou on recalcule
-                    # On recalcule immédiatement pour essayer de contourner
+                    # --- CORRECTION 1 : GESTION DU BLOCAGE (PATIENCE) ---
+                    # Au lieu de replanifier tout de suite, on attend un peu de façon aléatoire
+                    # pour laisser l'autre passer.
                     self.current_path = [] 
-                    self._planifier()
+                    # Pause aléatoire entre 0.2 et 0.8 secondes
+                    self.pause_until = now + random.uniform(0.2, 0.8)
+                    # On ne replanifie pas ici, le prochain tick le fera après la pause
 
-                # Fin de chemin ?
                 if not self.current_path:
                     if self.try_action():
                         self._mark_progress()
@@ -361,20 +361,20 @@ class Agent:
             self._aller_adjacent("BAC", cible_aliment=target_req.nom); return
 
     def _get_dynamic_obstacles(self) -> Set[Coord]:
-        """Retourne la position du partenaire pour l'éviter."""
         obs = set()
         if self.partner:
             obs.add((self.partner.player.x, self.partner.player.y))
-            # Optionnel : Ajouter la cible immédiate du partenaire pour plus de fluidité
             if self.partner.current_path:
-                 obs.add(self.partner.current_path[0])
+                 # On considère ses 2 prochaines étapes comme bloquées pour fluidifier
+                 for step in self.partner.current_path[:2]:
+                     obs.add(step)
         return obs
 
     def _aller_adjacent(self, type_cible: str, cible_aliment: Optional[str] = None):
         px, py = self.player.x, self.player.y
         stations = []
         
-        # Récupération des cibles potentielles
+        # --- (Le début de la fonction reste identique pour récupérer les stations) ---
         if type_cible == "BAC":
             for pos, (nom_bac, _) in self.carte.bacs_config.items():
                 if nom_bac == (cible_aliment or ""): stations.append(pos)
@@ -385,35 +385,44 @@ class Agent:
         elif type_cible == "FOUR_OU_POELE":
             toutes = self.carte.pos_fours + self.carte.pos_poeles
             libres = [p for p in toutes if p not in self.game.cuissons]
-            stations = libres or toutes # Si tout plein, on va vers un plein pour attendre
+            stations = libres or toutes 
         elif type_cible == "ASSEMBLAGE":
             stations = [self.current_assembly] if self.current_assembly else self.carte.pos_assemblages
         elif type_cible == "SERVICE": 
             stations = self.carte.pos_services
 
-        # Filtrage INTELLIGENT : Ne pas cibler une station que le partenaire utilise déjà
-        # Si le partenaire a un target_station défini et que c'est une station unique (pas un bac générique)
-        if self.partner and self.partner.target_station:
-             if self.partner.target_station in stations and len(stations) > 1:
-                 stations.remove(self.partner.target_station)
+        # --- CORRECTION 2 : FILTRAGE INTELLIGENT AVEC DISTANCE ---
+        stations_candidates = []
+        partner_target = self.partner.target_station if self.partner else None
+        partner_pos = (self.partner.player.x, self.partner.player.y) if self.partner else (999,999)
+
+        for s in stations:
+            # Si le partenaire vise cette station PRÉCISEMMENT
+            if s == partner_target:
+                # On calcule les distances
+                dist_me = abs(px - s[0]) + abs(py - s[1])
+                dist_partner = abs(partner_pos[0] - s[0]) + abs(partner_pos[1] - s[1])
+                
+                # Si je suis plus loin (ou égal mais j'ai un ID plus grand), je lui laisse
+                if dist_me > dist_partner or (dist_me == dist_partner and self.agent_id > self.partner.agent_id):
+                    continue # Je saute cette station, elle est "réservée"
+            
+            stations_candidates.append(s)
+
+        # Si on a tout filtré (plus rien de dispo), on remet tout (on essaie quand même)
+        if not stations_candidates:
+            stations_candidates = stations
 
         obstacles = self._get_dynamic_obstacles()
-        adj = cases_adjacentes_a_stations(self.carte, stations, obstacles)
+        adj = cases_adjacentes_a_stations(self.carte, stations_candidates, obstacles)
         
-        # Pathfinding avec évitement
         path = bfs_path(self.carte, (px, py), adj, obstacles)
         
         if path:
             self.current_path = path
-            # On tente de deviner quelle station on vise (la plus proche de la fin du chemin)
             end_x, end_y = path[-1]
-            closest_s = None
-            min_d = 999
-            for sx, sy in stations:
-                d = abs(sx - end_x) + abs(sy - end_y)
-                if d < min_d:
-                    min_d = d
-                    closest_s = (sx, sy)
+            # On assigne la target_station pour que l'autre agent puisse la voir
+            closest_s = min(stations_candidates, key=lambda s: abs(s[0]-end_x) + abs(s[1]-end_y))
             self.target_station = closest_s
         else:
             self.current_path = []
