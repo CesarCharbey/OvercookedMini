@@ -4,6 +4,8 @@ from PIL import Image, ImageTk
 from recette import Aliment
 
 TILE_SIZE = 32
+SPRITE_SCALE = 1.7  # 1.0 = taille de la tuile, 1.3 = un peu plus grand
+
 
 class Player:
     def __init__(self, x: int, y: int, couleur: str = "green", sprite_path: Optional[str] = None, label: str = "") -> None:
@@ -35,9 +37,13 @@ class Player:
                 x0 = col * TILE_SIZE
                 y0 = row * TILE_SIZE
                 sub = img.crop((x0, y0, x0 + TILE_SIZE, y0 + TILE_SIZE))
-                sub = sub.resize((TILE_SIZE * 2, TILE_SIZE *2), Image.NEAREST)
+
+                target = int(TILE_SIZE * SPRITE_SCALE)   # <<< ici
+                sub = sub.resize((target, target), Image.NEAREST)
+
                 self.frames[d].append(ImageTk.PhotoImage(sub))
         self.current_image = self.frames["down"][0]
+
 
     def _next_frame(self):
         if not self.has_sprite: return

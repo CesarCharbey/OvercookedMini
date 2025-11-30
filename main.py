@@ -16,10 +16,19 @@ from map_generator import generate_map
 W, H = 600, 600
 GAME_DURATION_S = 90
 TICK_MS = 100
+sprites_game1 = [
+        "texture/boss.png",  # Agent 1
+        "texture/paul.png",  # Agent 2 (si présent)
+    ]
+
+sprites_game2 = [
+    "texture/Player.png",  # Agent 1
+    "texture/robin.png",  # Agent 2 (si présent)
+]
 
 class Game:
     def __init__(self, root: tk.Tk, grille_data: List[List[int]], spawn_positions: List[Tuple[int, int]], 
-                 strategie_1="naive", strategie_2="naive", nb_agents=2) -> None:
+                 strategie_1="naive", strategie_2="naive", nb_agents=2, sprite_paths=None) -> None:
         self.root = root
         self.canvas = tk.Canvas(root, width=W, height=H)
         self.canvas.pack()
@@ -52,9 +61,17 @@ class Game:
             sx, sy = spawn_positions[i]
             
             # Création joueur
-            p = Player(sx, sy, sprite_path="texture/Player.png", label=f"P{i+1}")
-            self.players.append(p)
+            if sprite_paths is not None and i < len(sprite_paths):
+                sprite_path = sprite_paths[i]
+            else:
+                # Sprite par défaut si pas de liste fournie ou pas assez d’entrées
+                sprite_path = "texture/Player.png"
             
+            # Création joueur avec sprite spécifique
+            p = Player(sx, sy, sprite_path=sprite_path, label=f"P{i+1}")
+            self.players.append(p)
+
+
             # Choix de la stratégie (J1 prend strat1, J2 prend strat2)
             strat = strategie_1 if i == 0 else strategie_2
             
@@ -239,6 +256,8 @@ def main(nb_agents_1=2, strat_1a="naive", strat_1b="naive",
     # On met les spawns dans une liste pour les passer à la classe Game
     spawns = [spawn1, spawn2]
 
+    
+
     # --- INTERFACE TKINTER ---
     frame = tk.Frame(root)
     frame.pack()
@@ -251,7 +270,7 @@ def main(nb_agents_1=2, strat_1a="naive", strat_1b="naive",
     
     # On passe la grille générée et les spawns
     g1 = Game(f1, grille_data=grille_generee, spawn_positions=spawns,
-              strategie_1=strat_1a, strategie_2=strat_1b, nb_agents=nb_agents_1)
+              strategie_1=strat_1a, strategie_2=strat_1b, nb_agents=nb_agents_1, sprite_paths=sprites_game1)
 
 
     # --- ÉQUIPE 2 ---
@@ -262,7 +281,7 @@ def main(nb_agents_1=2, strat_1a="naive", strat_1b="naive",
     
     # On passe la MÊME grille et les MÊMES spawns (compétition sur terrain égal)
     g2 = Game(f2, grille_data=grille_generee, spawn_positions=spawns,
-              strategie_1=strat_2a, strategie_2=strat_2b, nb_agents=nb_agents_2)
+              strategie_1=strat_2a, strategie_2=strat_2b, nb_agents=nb_agents_2, sprite_paths=sprites_game2)
 
     def check_end():
         now = time.time()
